@@ -9,6 +9,7 @@ from langchain_groq import ChatGroq
 from ..logger import GLOBAL_LOGGER as log
 from ..exceptions.custom_exception import ResearchAnalystException
 import asyncio
+from dotenv import load_dotenv
 
 from research_and_analyst import PROJECT_ROOT
 config_path = PROJECT_ROOT / "config" / "configuration.yaml"
@@ -16,6 +17,7 @@ config_path = PROJECT_ROOT / "config" / "configuration.yaml"
 
 class ApiKeyManager:
     def __init__(self):
+        load_dotenv()
         self.api_keys = {
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
             "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY"),
