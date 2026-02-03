@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Report Progress | AI Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+    <div class="report-container">
+        <div class="card">
+        <h2>📄 Topic: {{ topic }}</h2>
+
+        {% if not pdf_path %}
+            <p class="subtitle">Your AI-generated report is ready! You can refine it below 👇</p>
+            <form method="post" action="/submit_feedback">
+            <input type="hidden" name="topic" value="{{ topic }}">
+            <textarea name="feedback" rows="6" placeholder="Enter feedback here...">{{ feedback }}</textarea>
+            <button type="submit">💬 Submit Feedback</button>
+            </form>
+        {% else %}
+            <h3>✅ Final Report Ready!</h3>
+            <div class="downloads">
+            <a href="/download/{{ doc_path | basename }}" class="download-btn">⬇️ Download DOCX</a>
+            <a href="/download/{{ pdf_path | basename }}" class="download-btn">📘 Download PDF</a>
+            </div>
+        {% endif %}
+        </div>
+    </div>
+</body>
+</html>

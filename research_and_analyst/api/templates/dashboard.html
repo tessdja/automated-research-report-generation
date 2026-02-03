@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Dashboard | Report Generator</title>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body>
+    <div class="dashboard">
+    <div class="card">
+        <h2>Welcome, {{ user }} 👋</h2>
+        <p class="subtitle">Enter a topic to generate your AI report</p>
+        <form method="post" action="/generate_report">
+        <input type="text" name="topic" placeholder="e.g. Impact of Generative AI on Jobs" required />
+        <button type="submit">🚀 Generate Report</button>
+        </form>
+    </div>
+    </div>
+</body>
+</html>
