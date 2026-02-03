@@ -200,22 +200,54 @@ class AutonomousReportGenerator:
     def write_introduction(self, state: ResearchGraphState):
         """ _summary_
         """
+        # Full set of sections
+        sections = state["sections"]
         topic = state["topic"]
-        intro = self.llm.invoke([
-            SystemMessage(content=f"Write a 100-word markdown introduction for {topic}.")
-        ])
+
+        # Concatenate all sections
+        formatted_str_sections = "\n\n".join([f"{section}" for section in sections])
+
+        # Summarize all sections into a final report
+        instructions = INTRO_CONCLUSION_INSTRUCTIONS.format(topic=topic, formatted_str_sections=formatted_str_sections)
+        intro = llm.invoke([instructions]+[HumanMessage(content=f"Write the report introduction")])
+
         return{"introduction": intro.content}
 
 
     def write_conclusion(self, state: ResearchGraphState):
         """_summary_
         """
-        pass
+        # Full set of sections
+        sections = state["sections"]
+        topic = state["topic"]
+
+        # Concatenate all sections
+        formatted_str_sections = "\n\n".join([f"{section}" for section in sections])
+
+        # Summarize all sections into a final report
+        instructions = INTRO_CONCLUSION_INSTRUCTIONS.format(topic=topic, formatted_str_sections=formatted_str_sections)
+        conclusion = llm.invoke([instructions]+[HumanMessage(content=f"Write the report conclusion")])
+
+        return{"conclusion": conclusion.content}
 
     def finalize_report(self, state: ResearchGraphState):
         """ _summary_
         """
-        pass
+        content = state["content"]
+        if content.startswith("## Insights"):
+            content = content.strip("## Insights")
+        if "## Sources" in content:
+            try:
+                content, sources = content.split("\n## Sources\n")
+            except Exception as e:
+                sources = None
+        else:
+            sources = None
+
+        final_report = state["introduction"] + "\n\n---\n\n" + content + "\n\n---\n\n" + state["conclusion"]
+        if sources is not None:
+            final_report += "\n\n## Sources\n" + sources
+        return {"final_report": final_report}
 
     def save_report(self, final_report: str, topic: str, format: str = "docx", save_dir: str = None):
         """ _summary_
