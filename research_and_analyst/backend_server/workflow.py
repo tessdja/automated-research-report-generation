@@ -22,9 +22,10 @@ from reportlab.pdfgen import canvas
 from research_and_analyst.backend_server.models import (
     Analyst,
     Perspectives,
-    GenerateAnalystState,
+    GenerateAnalystsState,
     InterviewState,
     ResearchGraphState,
+    SearchQuery
 )
 
 from research_and_analyst.utils.model_loader import ModelLoader
@@ -42,15 +43,36 @@ def build_interview_graph(llm, tavily_search=None):
         Args:
             state (InterviewState): _description_
         """
-        pass
+        analyst = state["analyst"]
+        messages = state["messages"]
 
+        # generate the question
+        system_message = ANALYST_ASK_QUESTIONS.format(goals = analyst.persona)
+        question = llm.invoke([SystemMessage(content=system_message)]+messages)
+
+        # return the question through state
+        return {"messages":[question]}
+    
     def search_web(state: InterviewState):
         """_summary_
 
         Args:
             state (InterviewState): _description_
         """
-        pass
+        structure_llm = llm.with_structured_output(SearchQuery)
+        search_query = structure_llm.invoke([GENERATE_SEARCH_QUERY]+state["messages"])
+
+        # Search
+        search_docs = tavily_search.invoke(search_query.search_query)
+        # Format
+        formatted_search_docs = "\n\n---\n\n".join(
+            [
+                f'<Document href="{doc["url"]}"/>\n{doc["content"]}\n</Document>'
+                for doc in search_docs
+            ]
+        )
+
+        return {"context": [formatted_search_docs]}
 
     def generate_answer(state: InterviewState):
         """_summary_
@@ -58,7 +80,20 @@ def build_interview_graph(llm, tavily_search=None):
         Args:
             state (InterviewState): _description_
         """
-        pass
+        # Get state
+        analyst = state["analyst"]
+        messages = state["messages"]
+        context = state["context"]
+
+        # Answer question
+        system_message = GENERATE_ANSWERS.format(goals=analyst.persona, context=context)
+        answer = llm.invoke([SystemMessage(content=system_message)]+messages)
+
+        # Name the message as coming from the expert
+        answer.name = "expert"
+
+        # Append it to state
+        return {"messages": [answer]}
 
     def save_interview(state: InterviewState):
         """_summary_
@@ -66,7 +101,14 @@ def build_interview_graph(llm, tavily_search=None):
         Args:
             state (InterviewState): _description_
         """
-        pass
+        # Get messages
+        messages = state["messages"]
+
+        # Convert interview to a string
+        interview = get_buffer_string(messages)
+
+        # Save to interview key
+        return {"interview": interview}
 
     def write_section(state: InterviewState):
         """_summary_
@@ -74,7 +116,18 @@ def build_interview_graph(llm, tavily_search=None):
         Args:
             state (InterviewState): _description_
         """
-        pass
+        # Get state
+        context = state["context"]
+        analyst = state["analyst"]
+
+        # Write section using either the gathered source docs from interview (context) 
+        # or the interview itself (interview)
+        system_message = WRITE_SECTION.format(focus=analyst.description)
+        section = llm.invoke([SystemMessage(content=system_message)]+
+                            [HumanMessage(content=f"Use this source to write your section: {context}")])
+
+        # Append it to state
+        return {"sections":[section.content]}
 
     builder = StateGraph(InterviewState)
     builder.add_node("ask_question", generation_question)
@@ -100,15 +153,27 @@ class AutonomousReportGenerator:
         self.memory = MemorySaver()
         self.tavily_search = TavilySearch()
 
-    def create_analyst(self, state: GenerateAnalystState):
+    def create_analyst(self, state: GenerateAnalystsState):
         """ _summary_
         """
+        topic = state["topic"]
+        max_analysts = state["max_analysts"]
+        human_analyst_feedback = state.get("human_analyst_feedback", "")
+
         structured_llm = self.llm.with_structured_output(Perspectives)
+
+        system_messages = CREATE_ANALYSTS_PROMPT.format(
+            topic=topic,
+            max_analysts=max_analysts,
+            human_analyst_feedback=human_analyst_feedback
+        )
 
         analysts = structured_llm.invoke([
             SystemMessage(content=CREATE_ANALYSTS_PROMPT),
             HumanMessage(content="Generate the set of analysts.")
         ])
+        
+        # Write the list of analysts to state
         return{"analysts": analysts.analysts}
 
     def human_feedback(self):
@@ -236,7 +301,7 @@ if __name__ == "__main__":
 
         thread = {"configurable": {"thread_id": "1"}}
 
-        for _ in graph.stream({"topic": topic, "max_analysts": 3}, thread, stream_node="values"):
+        for _ in graph.stream({"topic": topic, "max_analysts": 3}, thread, stream_mode="values"):
             pass
 
         state = graph.get_state(thread)
@@ -245,7 +310,7 @@ if __name__ == "__main__":
 
         graph.update_state(thread, {"human_analyst_feedback": feedback}, as_node="human_feedback")
 
-        for _ in graph.stream(None, thread, stream_node="values"):
+        for _ in graph.stream(None, thread, stream_mode="values"):
             pass
 
         final_state = graph.get_state(thread)

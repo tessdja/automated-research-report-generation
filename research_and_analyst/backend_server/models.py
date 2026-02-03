@@ -48,7 +48,7 @@ class SearchQuery(BaseModel):
 # State Classes for Graphs
 # -------------------------------
 
-class GenerateAnalystState(TypedDict):
+class GenerateAnalystsState(TypedDict):
     topic: str # Research topic
     max_analysts: int # Number of analysts to generate
     human_analyst_feedback: str # Feedback from human
