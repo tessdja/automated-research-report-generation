@@ -64,11 +64,16 @@ def build_interview_graph(llm, tavily_search=None):
 
         # Search
         search_docs = tavily_search.invoke(search_query.search_query)
+
+        # Tavily returns a dict with a "results" list (most common)
+        results = search_docs.get("results", []) if isinstance(search_docs, dict) else search_docs
+
         # Format
         formatted_search_docs = "\n\n---\n\n".join(
             [
-                f'<Document href="{doc["url"]}"/>\n{doc["content"]}\n</Document>'
-                for doc in search_docs
+                f'<Document href="{doc.get("url", "")}"/>\n{doc.get("content", "")}\n</Document>'
+                for doc in (results or [])
+                if isinstance(doc, dict)
             ]
         )
 
@@ -166,10 +171,11 @@ class AutonomousReportGenerator:
             topic=topic,
             max_analysts=max_analysts,
             human_analyst_feedback=human_analyst_feedback
+
         )
 
         analysts = structured_llm.invoke([
-            SystemMessage(content=CREATE_ANALYSTS_PROMPT),
+            SystemMessage(content=system_messages),
             HumanMessage(content="Generate the set of analysts.")
         ])
         
@@ -209,7 +215,7 @@ class AutonomousReportGenerator:
 
         # Summarize all sections into a final report
         instructions = INTRO_CONCLUSION_INSTRUCTIONS.format(topic=topic, formatted_str_sections=formatted_str_sections)
-        intro = llm.invoke([instructions]+[HumanMessage(content=f"Write the report introduction")])
+        intro = self.llm.invoke([SystemMessage(content=instructions)]+[HumanMessage(content=f"Write the report introduction")])
 
         return{"introduction": intro.content}
 
@@ -226,7 +232,7 @@ class AutonomousReportGenerator:
 
         # Summarize all sections into a final report
         instructions = INTRO_CONCLUSION_INSTRUCTIONS.format(topic=topic, formatted_str_sections=formatted_str_sections)
-        conclusion = llm.invoke([instructions]+[HumanMessage(content=f"Write the report conclusion")])
+        conclusion = self.llm.invoke([SystemMessage(content=instructions)]+[HumanMessage(content=f"Write the report conclusion")])
 
         return{"conclusion": conclusion.content}
 
@@ -385,7 +391,7 @@ if __name__ == "__main__":
 
         graph = reporter.build_graph()
 
-        topic = ""
+        topic = "How can generative AI accelerate drug discovery?"
 
         thread = {"configurable": {"thread_id": "1"}}
 

@@ -22,6 +22,7 @@ class Analyst(BaseModel):
     name: str = Field(description="Name of analyst.")
     role: str = Field(
         description="description of the analyst's focus, concerns, and motives.")
+    description: str = Field(default="", description="Short summary of the analyst's focus/expertise")
     
     @property
     def persona(self) -> str:
@@ -42,7 +43,7 @@ class Perspectives(BaseModel):
 # -------------------------------
 
 class SearchQuery(BaseModel):
-    search_query: str = Field(None, description="Search query for retrieval.")
+    search_query: str = Field(..., description="Search query for retrieval.")
 
 # -------------------------------
 # State Classes for Graphs
