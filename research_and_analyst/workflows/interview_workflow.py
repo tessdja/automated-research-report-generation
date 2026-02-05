@@ -69,24 +69,33 @@ class InterviewGraphBuilder:
             search_prompt = GENERATE_SEARCH_QUERY.render()
             search_query = structure_llm.invoke([SystemMessage(content=search_prompt)] + state["messages"])
 
+            q = (search_query.search_query or "").strip()
+            if not q:
+                q = " ".join(get_buffer_string(state["messages"]).split()[:30])
+
             self.logger.info("Performing Tavily web search", query=search_query.search_query)
             #search_docs = self.tavily_search.invoke(search_query.search_query)
-            search_docs = self.tavily_search.search(
-                search_query.search_query, 
-                search_depth="advanced", 
-                max_results=5)
+            resp = self.tavily_search.search(
+                search_query.search_query,
+                search_depth="advanced",
+                max_results=5,
+            )
 
-            if not search_docs:
+            results = resp.get("results", []) if isinstance(resp, dict) else (resp or [])
+
+            if not results:
                 self.logger.warning("No search results found")
                 return {"context": ["[No search results found.]"]}
 
             formatted = "\n\n---\n\n".join(
                 [
-                    f'<Document href="{doc.get("url", "#")}"/>\n{doc.get("content", "")}\n</Document>'
-                    for doc in search_docs
+                    f'<Document href="{doc.get("url", "#")}">\n{doc.get("content", "")}\n</Document>'
+                    for doc in results
+                    if isinstance(doc, dict)
                 ]
             )
-            self.logger.info("Web search completed", result_count=len(search_docs))
+
+            self.logger.info("Web search completed", result_count=len(results))
             return {"context": [formatted]}
 
         except Exception as e:
@@ -140,7 +149,8 @@ class InterviewGraphBuilder:
         """
         Write a concise report section based on the interview and gathered context.
         """
-        context = state.get("context", ["[No context available.]"])
+        context_list = state.get("context", ["[No context available.]"])
+        context_text = "\n\n".join(context_list)
         analyst = state["analyst"]
 
         try:
@@ -148,7 +158,12 @@ class InterviewGraphBuilder:
             system_prompt = WRITE_SECTION.render(focus=analyst.description)
             section = self.llm.invoke(
                 [SystemMessage(content=system_prompt)]
-                + [HumanMessage(content=f"Use this source to write your section: {context}")]
+                + [HumanMessage(content=
+                    "Write the section using ONLY the sources below. "
+                    "Include citations by URL inline (at least 2). "
+                    "If sources are insufficient, say so.\n\n"
+                    f"SOURCES:\n{context_text}"
+                )]
             )
             self.logger.info("Report section generated successfully", length=len(section.content))
             return {"sections": [section.content]}

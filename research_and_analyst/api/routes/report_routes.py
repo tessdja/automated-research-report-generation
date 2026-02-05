@@ -21,7 +21,7 @@ async def generate_report(request: ReportRequest):
 async def update_feedback(request: FeedbackRequest):
     """Provide feedback for human-feedback node."""
     try:
-        return service.update_feedback(request.thread_id, request.feedback)
+        return service.submit_feedback(request.thread_id, request.feedback)
     except Exception as e:
         logger.error("API error during feedback update", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))

@@ -18,12 +18,12 @@ class ApiKeyManager:
     """
 
     def __init__(self):
-        load_dotenv()
-
+        # load_dotenv()
         self.api_keys = {
             "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY"),
             "GOOGLE_API_KEY": os.getenv("GOOGLE_API_KEY"),
-            "GROQ_API_KEY": os.getenv("GROQ_API_KEY")
+            "GROQ_API_KEY": os.getenv("GROQ_API_KEY"),
+            "TAVILY_API_KEY": os.getenv("TAVILY_API_KEY"),
         }
 
         log.info("Initializing ApiKeyManager")
@@ -142,11 +142,24 @@ class ModelLoader:
                     api_key=self.api_key_mgr.get("GROQ_API_KEY"),
                     temperature=temperature,
                 )
-
+            # elif provider == "openai":
+            #     llm = ChatOpenAI(
+            #         model=model_name,
+            #         api_key=self.api_key_mgr.get("OPENAI_API_KEY"),
+            #         temperature=temperature,
+            #     )
             elif provider == "openai":
+                key = self.api_key_mgr.get("OPENAI_API_KEY")
+                if not key:
+                    raise ResearchAnalystException(
+                        "OPENAI_API_KEY is missing at LLM creation time. "
+                        "Your app reached ModelLoader.load_llm() without a usable key.",
+                        sys
+                    )
+
                 llm = ChatOpenAI(
                     model=model_name,
-                    api_key=self.api_key_mgr.get("OPENAI_API_KEY"),
+                    api_key=key,
                     temperature=temperature,
                 )
 
