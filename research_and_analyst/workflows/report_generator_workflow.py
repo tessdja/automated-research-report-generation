@@ -237,29 +237,72 @@ class AutonomousReportGenerator:
             raise ResearchAnalystException("Error saving DOCX report", e)
 
     def _save_as_pdf(self, text: str, file_path: str):
-        """Helper: save as PDF."""
+        """Helper: save as PDF with centered text block, wrapping, and clean layout."""
+        from textwrap import wrap
         try:
             c = canvas.Canvas(file_path, pagesize=letter)
-            _, height = letter
-            x, y = 50, height - 50
-            for line in text.split("\n"):
-                if not line.strip():
-                    y -= 15
+            width, height = letter
+
+            # Margins and layout control
+            left_margin = 80
+            right_margin = 80
+            usable_width = width - left_margin - right_margin
+            top_margin = 70
+            bottom_margin = 60
+            y = height - top_margin
+
+            # Fonts and styles
+            normal_font = "Helvetica"
+            bold_font = "Helvetica-Bold"
+            line_height = 15
+
+            # Title centered at top
+            lines = text.split("\n")
+            for raw_line in lines:
+                line = raw_line.strip()
+                if not line:
+                    y -= line_height
                     continue
-                if y < 50:
-                    c.showPage()
-                    y = height - 50
+
+                # Detect headings
                 if line.startswith("# "):
-                    c.setFont("Helvetica-Bold", 14)
-                    line = line[2:]
+                    font = bold_font
+                    size = 16
+                    line = line[2:].strip()
                 elif line.startswith("## "):
-                    c.setFont("Helvetica-Bold", 12)
-                    line = line[3:]
+                    font = bold_font
+                    size = 13
+                    line = line[3:].strip()
                 else:
-                    c.setFont("Helvetica", 10)
-                c.drawString(x, y, line.strip())
-                y -= 15
+                    font = normal_font
+                    size = 11
+
+                # Wrap text for readable width
+                c.setFont(font, size)
+                wrapped_lines = wrap(line, width=int(usable_width / (size * 0.55)))
+
+                for wline in wrapped_lines:
+                    # 🔹 Auto new page if near bottom
+                    if y < bottom_margin:
+                        c.showPage()
+                        c.setFont(font, size)
+                        y = height - top_margin
+
+                    # 🔹 Compute centered X position
+                    text_width = c.stringWidth(wline, font, size)
+                    x = (width - text_width) / 2  # center horizontally
+
+                    c.drawString(x, y, wline)
+                    y -= line_height
+
+            # Optional footer with page number
+            for page_num in range(1, c.getPageNumber() + 1):
+                c.setFont("Helvetica", 9)
+                c.drawCentredString(width / 2, 25, f"Page {page_num}")
+
             c.save()
+            self.logger.info("Centered PDF saved successfully", path=file_path)
+
         except Exception as e:
             self.logger.error("PDF save failed", path=file_path, error=str(e))
             raise ResearchAnalystException("Error saving PDF report", e)
