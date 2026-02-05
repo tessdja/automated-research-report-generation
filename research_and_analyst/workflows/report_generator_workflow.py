@@ -52,7 +52,10 @@ class AutonomousReportGenerator:
 
         if not api_key:
             # Fail early with a clear message (or set self.tavily=None if you want to run without web search)
-            raise RuntimeError("TAVILY_API_KEY is missing. Ensure research_and_analyst/.env is loaded.")
+            raise RuntimeError(
+                "TAVILY_API_KEY is missing. Ensure your .env is loaded at startup (main.py) "
+                "or set TAVILY_API_KEY in your environment."
+            )
 
         self.tavily = TavilyClient(api_key=api_key)
 
