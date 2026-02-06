@@ -80,7 +80,8 @@ async def show_login(request: Request):
 
 SESSIONS = {}
 
-WORKFLOWS = {}  # session_id -> {"graph": graph, "generator": generator, "thread": thread}
+# WORKFLOWS = {}  # session_id -> {"graph": graph, "generator": generator, "thread": thread}
+THREADS = {}  # session_id -> thread_id
 
 @app.post("/login", response_class=HTMLResponse)
 async def login(
@@ -121,9 +122,10 @@ async def generate_report(request: Request, topic: str = Form(...)):
     generator = AutonomousReportGenerator(llm)
     graph = generator.build_graph()
 
-    # thread = {"configurable": {"thread_id": "1"}}
     thread_id = f"{session_id}-{uuid4().hex}"
     thread = {"configurable": {"thread_id": thread_id}}
+
+    THREADS[session_id] = thread_id
 
     for _ in graph.stream({"topic": topic, "max_analysts": 3}, thread, stream_mode="values"):
         pass
@@ -143,10 +145,9 @@ async def generate_report(request: Request, topic: str = Form(...)):
             )
 
     # persist for /submit_feedback
-    WORKFLOWS[session_id] = {"graph": graph, "generator": generator, "thread": thread, "topic": topic}
+    # WORKFLOWS[session_id] = {"graph": graph, "generator": generator, "thread": thread, "topic": topic}
 
     feedback = ""
-
     return templates.TemplateResponse(
         "report_progress.html",
         {"request": request, "topic": topic, "feedback": feedback},
@@ -158,26 +159,49 @@ async def submit_feedback(request: Request, topic: str = Form(...), feedback: st
     if session_id not in SESSIONS:
         return RedirectResponse(url="/")
 
-    wf = WORKFLOWS.get(session_id)
-    if not wf:
+    # wf = WORKFLOWS.get(session_id)
+    # if not wf:
+    #     return templates.TemplateResponse(
+    #         "report_progress.html",
+    #         {"request": request, "topic": topic, "feedback": feedback, "error": "No active workflow. Please generate report again."},
+    #     )
+
+    # graph = wf["graph"]
+    # generator = wf["generator"]
+    # thread = wf["thread"]
+
+    # Option B-1: retrieve the thread_id created in /generate_report
+    thread_id = THREADS.get(session_id)
+    if not thread_id:
         return templates.TemplateResponse(
             "report_progress.html",
-            {"request": request, "topic": topic, "feedback": feedback, "error": "No active workflow. Please generate report again."},
+            {
+                "request": request,
+                "topic": topic,
+                "feedback": feedback,
+                "error": "No active workflow. Please generate report again."
+            },
         )
 
-    graph = wf["graph"]
-    generator = wf["generator"]
-    thread = wf["thread"]
+    # Rebuild objects per request (state is NOT in memory; it is in SQLite)
+    llm = ModelLoader().load_llm()
+    generator = AutonomousReportGenerator(llm)
+    graph = generator.build_graph()
 
+    thread = {"configurable": {"thread_id": thread_id}}
+
+   # Update feedback at the interrupt node
     graph.update_state(
         thread,
         {"human_analyst_feedback": feedback, "topic": topic},
         as_node="human_feedback",
         )
 
+    # Resume graph execution
     for _ in graph.stream(None, thread, stream_mode="values"):
         pass
 
+    # Read final report from state
     final_state = graph.get_state(thread)
     final_report = final_state.values.get("final_report")
         
@@ -185,11 +209,12 @@ async def submit_feedback(request: Request, topic: str = Form(...), feedback: st
         generator.logger.warning("Final report content is None — generating fallback report.")
         final_report = f"Report on '{topic}' was generated successfully, but no text output was returned.\nPlease re-run the workflow or verify analyst responses."
 
-
     doc_path = generator.save_report(final_report, topic, "docx")
     pdf_path = generator.save_report(final_report, topic, "pdf")
 
-    WORKFLOWS.pop(session_id, None)
+    # WORKFLOWS.pop(session_id, None)
+    # Optional cleanup: end the workflow for this session
+    THREADS.pop(session_id, None)
 
     return templates.TemplateResponse(
         "report_progress.html",

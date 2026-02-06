@@ -26,13 +26,13 @@ class InterviewGraphBuilder:
         5. Writing a summarized report section.
     """
 
-    def __init__(self, llm, tavily_search):
+    def __init__(self, llm, tavily_search, checkpointer):
         """
         Initialize the InterviewGraphBuilder with the LLM model and Tavily search tool.
         """
         self.llm = llm
         self.tavily_search = tavily_search
-        self.memory = MemorySaver()
+        self.checkpointer = checkpointer
         self.logger = GLOBAL_LOGGER.bind(module="InterviewGraphBuilder")
 
     # ----------------------------------------------------------------------
@@ -196,7 +196,7 @@ class InterviewGraphBuilder:
             builder.add_edge("save_interview", "write_section")
             builder.add_edge("write_section", END)
 
-            graph = builder.compile(checkpointer=self.memory)
+            graph = builder.compile(checkpointer=self.memorycheckpointer)
             self.logger.info("Interview Graph compiled successfully")
             return graph
 

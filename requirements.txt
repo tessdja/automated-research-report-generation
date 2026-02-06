@@ -21,4 +21,6 @@ bcrypt==4.0.1
 passlib==1.7.4
 python-multipart==0.0.22
 
+langgraph-checkpoint-sqlite==3.0.3
+
 -e .

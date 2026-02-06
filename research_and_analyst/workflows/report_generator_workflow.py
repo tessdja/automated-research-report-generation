@@ -11,6 +11,7 @@ project_root = os.path.abspath(os.path.join(current_dir, "../../"))
 sys.path.append(project_root)
 
 from langgraph.graph import StateGraph, START, END
+
 from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import SystemMessage, HumanMessage
 from tavily import TavilyClient
@@ -18,6 +19,8 @@ from tavily import TavilyClient
 from docx import Document
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
+
+from research_and_analyst.utils.checkpointer import get_checkpointer
 
 from research_and_analyst.schemas.models import (
     Perspectives,
@@ -44,7 +47,8 @@ class AutonomousReportGenerator:
 
     def __init__(self, llm):
         self.llm = llm
-        self.memory = MemorySaver()
+        # self.memory = MemorySaver()
+        self.checkpointer = get_checkpointer()
         self.logger = GLOBAL_LOGGER.bind(module="AutonomousReportGenerator")
 
         api_key = os.getenv("TAVILY_API_KEY")
@@ -316,8 +320,7 @@ class AutonomousReportGenerator:
         try:
             self.logger.info("Building report generation graph")
             builder = StateGraph(ResearchGraphState)
-            # interview_graph = InterviewGraphBuilder(self.llm, self.tavily_search).build()
-            interview_graph = InterviewGraphBuilder(self.llm, self.tavily).build()
+            interview_graph = InterviewGraphBuilder(self.llm, self.tavily, self.checkpointer).build()
 
             def initiate_all_interviews(state: ResearchGraphState):
                 topic = state.get("topic", "Untitled Topic")
@@ -361,7 +364,8 @@ class AutonomousReportGenerator:
             builder.add_edge(["write_report", "write_introduction", "write_conclusion"], "finalize_report")
             builder.add_edge("finalize_report", END)
 
-            graph = builder.compile(interrupt_before=["human_feedback"], checkpointer=self.memory)
+            # graph = builder.compile(interrupt_before=["human_feedback"], checkpointer=self.memory)
+            graph = builder.compile(interrupt_before=["human_feedback"], checkpointer=self.checkpointer)
             self.logger.info("Report generation graph built successfully")
             return graph
         except Exception as e:
