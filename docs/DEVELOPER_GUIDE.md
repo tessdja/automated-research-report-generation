@@ -216,6 +216,7 @@ A useful analogy:
 Nodes don’t pass variables to each other; they update the notebook.
 So instead of:
 > “function A returns value and passes it to function B”
+
 Think:
 > “node A writes a page in the notebook; node B reads that page later”
 
@@ -229,6 +230,7 @@ Examples:
 - `topic`
 - `max_analysts`
 - `human_analyst_feedback`
+
 These are usually set early and remain stable (though feedback can modify direction).
 
 #### B) Work-in-progress artifacts
@@ -369,3 +371,220 @@ Next, we’ll do a **node-by-node walkthrough** of the parent graph and explicit
 - Which fields each node reads
 - Which fields each node writes
 - Why those updates happen there (and not elsewhere)
+
+### 5. Parent Workflow: Node-by-Node Walkthrough
+This section walks through the **parent LangGraph workflow** (the report generator graph) **one node at a time**, mapping:
+- what each node *reads* from state,
+- what it *writes* to state,
+- and *why* it exists at that point in the workflow.
+The goal is to make execution order and state mutation completely predictable.
+
+### 5.1 Where the parent workflow is defined
+The parent workflow is built in:
+- `research_and_analyst/workflows/report_generator_workflow.py`
+
+The key method is:
+- `AutonomousReportGenerator.build_graph()`
+
+This method:
+- defines the graph structure,
+- registers nodes,
+- wires edges and conditionals,
+- configures interrupt points,
+- and attaches the persistent checkpointer.
+
+### 5.2 High-level node sequence
+At a high level, the parent graph follows this sequence:
+
+```
+START
+  ↓
+create_analyst
+  ↓
+human_feedback   (interrupt point)
+  ↓
+prepare_interviews
+  ↓
+conduct_interview   (fan-out, runs multiple times)
+  ↓
+gather_interviews   (fan-in / join)
+  ↓
+write_report
+  ↓
+write_introduction
+  ↓
+write_conclusion
+  ↓
+finalize_report
+  ↓
+END
+```
+
+Some nodes execute once, others execute **multiple times** (fan-out), and one node (`human_feedback`) intentionally pauses execution.
+
+### 5.3 create_analyst — establish perspectives
+**Purpose:**
+Create the AI “analysts” who will later conduct interviews.
+
+**Reads from state:**
+- `topic`
+- `max_analysts`
+**Writes to state:**
+- `analysts`
+
+**Why this node exists first:**
+- Analysts define how the topic will be explored
+- Downstream work (interviews, sections) depends on knowing who the analysts are
+- This is the earliest safe point to pause for human feedback
+**Design note:**
+At the end of this node, the workflow already contains meaningful structure (analysts) and can be safely checkpointed.
+
+### 5.4 human_feedback — intentional pause point
+**Purpose:**
+Allow a human to guide or refine the workflow before expensive work begins.
+
+**Reads from state:**
+- `topic`
+- `analysts`
+
+**Writes to state:**
+- `human_analyst_feedback`
+**Special behavior:**
+- This node is listed in `interrupt_before=[...]` when compiling the graph
+- Execution **stops here** until external input is provided
+
+**Why this node matters:**
+- It demonstrates **human-in-the-loop** as a first-class design feature
+- It allows the system to pause without losing state
+- It enables resume across HTTP requests and server restarts
+**Important mental model:**
+Nothing is “half-done” at this point — the workflow is simply *waiting*.
+
+### 5.5 prepare_interviews — set up parallel execution
+**Purpose:**
+Initialize bookkeeping required for fan-out / fan-in.
+
+**Reads from state:**
+- `analysts`
+
+**Writes to state:**
+- `expected_interviews`
+- initializes aggregation containers (e.g., `completed_interviews = []`, `sections = []`)
+
+**Why this node exists:**
+- Fan-out requires a contract: how many parallel tasks are expected?
+- Fan-in requires a place to accumulate results safely
+- Separating this logic keeps interview nodes simple
+**Design note:**
+This node does no LLM work. It purely prepares orchestration state.
+
+### 5.6 `conduct_interview`— fan-out execution (runs multiple times)
+**Purpose:**
+Run a full interview workflow for a single analyst.
+
+**Invocation pattern:**
+- This node is invoked via Send(...)
+- It runs **once per analyst**
+- Each run executes the nested interview graph
+**Reads from state:**
+- one `analyst`
+- `topic`
+- `human_analyst_feedback` (if present)
+**Writes to state:**
+- interview artifacts (transcripts / summaries)
+- draft section content for that analyst
+**Why this node fans out:**
+- Interviews are independent
+- Parallel execution reduces latency
+- Each analyst contributes a distinct perspective
+**Design note:**
+This node delegates complexity to the interview subgraph, keeping the parent graph focused on orchestration.
+
+### 5.7 `gather_interviews` — fan-in / join point
+**Purpose:**
+Safely aggregate results from parallel interviews.
+
+**Reads from state:**
+- partial interview outputs
+- expected_interviews
+- current aggregation state
+**Writes to state:**
+- appends to `completed_interviews`
+- appends to `sections`
+**Key responsibility:**
+Determine whether all interviews are complete.
+
+**Typical logic:**
+```python
+if len(completed_interviews) >= expected_interviews:
+    proceed
+else:
+    stop
+```
+
+**Why this node is critical:**
+- Prevents early continuation
+- Prevents infinite loops
+- Makes parallelism deterministic
+This node is the **synchronization barrier** of the workflow.
+
+### 5.8 write_report — synthesize core content
+**Purpose:**
+Combine all section drafts into a cohesive report body.
+
+**Reads from state:**
+- `sections`
+**Writes to state:**
+- `content` (or equivalent main report body)
+**Why this is a single node:**
+- Synthesis benefits from seeing all sections together
+- Ordering and transitions matter
+- This is where “multiple voices” become one narrative
+
+### 5.9 write_introduction and write_conclusion
+**Purpose:**
+Add framing around the synthesized content.
+
+**Reads from state:**
+- `content`
+- `topic`
+**Writes to state:**
+- `introduction`
+- `conclusion`
+**Design note:**
+These are separate nodes to:
+- keep prompts focused,
+- make output easier to inspect,
+- allow future extensions (e.g., regenerate intro only).
+
+### 5.10 finalize_report — assemble final artifact
+**Purpose:**
+Produce the final combined report text.
+
+**Reads from state:**
+- `introduction`
+- `content`
+- `conclusion`
+**Writes to state:**
+- `final_report`
+**At this point:**
+- all work is complete,
+- state is fully populated,
+- downstream systems (file writers, downloads) can operate.
+
+### 5.11 Why this node structure works well
+This design succeeds because:
+- Each node has a single responsibility
+- State mutations are localized and predictable
+- Parallelism is explicit
+- Pause/resume semantics are intentional
+- Persistence works naturally without special cases
+
+Most importantly:
+> **Control flow lives in the graph, not in the code inside nodes.**
+
+**Next: Nested Interview Workflow**
+Next, we’ll zoom in on the interview subgraph and explain:
+- why it’s a separate graph,
+- how it’s invoked from the parent,
+- and what tradeoffs that design introduces.
