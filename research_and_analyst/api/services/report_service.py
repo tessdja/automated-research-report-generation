@@ -32,8 +32,8 @@ class ReportService:
 
             return {"thread_id": thread_id, "message": "Pipeline initiated successfully."}
         except Exception as e:
-            self.logger.error("Error initiating report generation", error=str(e))
-            raise ResearchAnalystException("Failed to start report generation", e)
+            self.logger.exception("Error initiating report generation")
+            raise ResearchAnalystException("Failed to start report generation")
         
     def submit_feedback(self, thread_id: str, feedback: str):
         """Update human feedback in graph state."""
@@ -45,8 +45,8 @@ class ReportService:
                 pass
             return {"message": "Feedback processed successfully"}
         except Exception as e:
-            self.logger.error("Error updating feedback", error=str(e))
-            raise ResearchAnalystException("Failed to update feedback", e)
+            self.logger.exception("Error updating feedback")
+            raise ResearchAnalystException("Failed to update feedback")
 
     def get_report_status(self, thread_id: str):
         """Fetch latest state or final report."""
@@ -67,8 +67,8 @@ class ReportService:
                 }
             return {"status": "in_progress"}
         except Exception as e:
-            self.logger.error("Error fetching report status", error=str(e))
-            raise ResearchAnalystException("Failed to fetch report status", e)
+            self.logger.exception("Error fetching report status")
+            raise ResearchAnalystException("Failed to fetch report status")
 
     @staticmethod
     def download_file(file_name: str):
