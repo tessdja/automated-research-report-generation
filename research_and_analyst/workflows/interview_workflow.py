@@ -69,14 +69,30 @@ class InterviewGraphBuilder:
             search_prompt = GENERATE_SEARCH_QUERY.render()
             search_query = structure_llm.invoke([SystemMessage(content=search_prompt)] + state["messages"])
 
-            q = (search_query.search_query or "").strip()
-            if not q:
-                q = " ".join(get_buffer_string(state["messages"]).split()[:30])
+            MAX_TAVILY_QUERY_CHARS = 400
 
-            self.logger.info("Performing Tavily web search", query=search_query.search_query)
-            #search_docs = self.tavily_search.invoke(search_query.search_query)
+            def _trim_query(q: str, limit: int = MAX_TAVILY_QUERY_CHARS) -> str:
+                q = (q or "").strip()
+                q = " ".join(q.split())  # collapse whitespace/newlines
+                if len(q) <= limit:
+                    return q
+                # trim at last space to avoid cutting mid-word
+                trimmed = q[:limit]
+                last_space = trimmed.rfind(" ")
+                if last_space > 50:
+                    trimmed = trimmed[:last_space]
+                return trimmed
+            
+            # --- existing logic, but safer ---
+            q = _trim_query(search_query.search_query)
+
+            if not q:
+                fallback = get_buffer_string(state["messages"])
+                q = _trim_query(fallback)
+
+            self.logger.info("Performing Tavily web search", query=q, query_len=len(q))
             resp = self.tavily_search.search(
-                search_query.search_query,
+                q,
                 search_depth="advanced",
                 max_results=5,
             )
@@ -158,22 +174,29 @@ class InterviewGraphBuilder:
             system_prompt = WRITE_SECTION.render(focus=analyst.description)
             section = self.llm.invoke(
                 [SystemMessage(content=system_prompt)]
-                + [HumanMessage(content=
-                    "Write the section using ONLY the sources below. "
-                    "Include citations by URL inline (at least 2). "
-                    "If sources are insufficient, say so.\n\n"
-                    f"SOURCES:\n{context_text}"
-                )]
+                + [
+                    HumanMessage(
+                        content=
+                            "Write the section using ONLY the sources below. "
+                            "Include citations by URL inline (at least 2). "
+                            "If sources are insufficient, say so.\n\n"
+                            f"SOURCES:\n{context_text}"
+                        )
+                    ]
             )
             self.logger.info("Report section generated successfully", length=len(section.content))
-            return {"sections": [section.content]}
+            # Append section AND mark this interview as complete
+            return {
+                "sections": [section.content], 
+                "completed_interviews": 1
+                }
 
         except Exception as e:
-            self.logger.error("Error writing report section", error=str(e))
-            raise ResearchAnalystException("Failed to generate report section", e)
+            self.logger.exception("Error writing report section", analyst=analyst.name)
+            raise ResearchAnalystException("Failed to generate report section")
 
     # ----------------------------------------------------------------------
-    # 🔹 Build Graph
+    # Build Graph
     # ----------------------------------------------------------------------
     def build(self):
         """
@@ -196,10 +219,12 @@ class InterviewGraphBuilder:
             builder.add_edge("save_interview", "write_section")
             builder.add_edge("write_section", END)
 
-            graph = builder.compile(checkpointer=self.memorycheckpointer)
+            # Use the same saver passed in from the parent generator
+            graph = builder.compile(checkpointer=None)
+
             self.logger.info("Interview Graph compiled successfully")
             return graph
 
         except Exception as e:
-            self.logger.error("Error building interview graph", error=str(e))
+            self.logger.exception("Error building interview graph")
             raise ResearchAnalystException("Failed to build interview graph workflow", e)

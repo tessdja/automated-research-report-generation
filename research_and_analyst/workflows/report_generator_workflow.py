@@ -82,19 +82,66 @@ class AutonomousReportGenerator:
                 HumanMessage(content="Generate the set of analysts."),
             ])
             self.logger.info("Analysts created", count=len(analysts.analysts))
-            return {"analysts": analysts.analysts}
+            return {"analysts": analysts.analysts, "max_analysts": max_analysts}
+
         except Exception as e:
             self.logger.error("Error creating analysts", error=str(e))
             raise ResearchAnalystException("Failed to create analysts", e)
 
     # ----------------------------------------------------------------------
-    def human_feedback(self):
-        """Pause node for human analyst feedback."""
+    def human_feedback(self, state: ResearchGraphState):
+        """
+        Pause node for human analyst feedback.
+        This node is an interrupt point. When the graph resumes (after update_state),
+        it should initialize/reset the fan-out/fan-in bookkeeping so downstream steps
+        behave deterministically.
+        """
         try:
-            self.logger.info("Awaiting human feedback")
-        except Exception as e:
-            self.logger.error("Error during feedback stage", error=str(e))
-            raise ResearchAnalystException("Human feedback node failed", e)
+            self.logger.info("Human feedback checkpoint reached")
+
+            analysts = state.get("analysts", []) or []
+
+            # Initialize fan-out/fan-in bookkeeping
+            # expected_interviews: how many interview runs we will fan out
+            # completed_interviews: will be incremented by each interview's _write_section
+            # sections: reset to avoid mixing content across runs (important in production)
+            return {
+                "expected_interviews": len(analysts),
+                "completed_interviews": 0,
+                "sections": [],
+            }
+
+        except Exception:
+            self.logger.exception("Error during feedback stage")
+            raise ResearchAnalystException("Human feedback node failed")
+
+    # ----------------------------------------------------------------------
+    def prepare_interviews(self, state: ResearchGraphState):
+        """Runs AFTER feedback is submitted to reset fan-out bookkeeping."""
+        analysts = state.get("analysts", []) or []
+        self.logger.info("Preparing interviews", analyst_count=len(analysts))
+        return {
+            "expected_interviews": len(analysts),
+            "completed_interviews": 0,
+            "sections": [],
+        }
+
+    # ----------------------------------------------------------------------
+    def gather_interviews(self, state: ResearchGraphState):
+        """
+        Barrier/join node. Called after each interview completes.
+        Only allows writing once all interviews are finished.
+        """
+        expected = state.get("expected_interviews", 0)
+        completed = state.get("completed_interviews", 0)
+
+        self.logger.info(
+            "Gather interviews progress",
+            expected_interviews=expected,
+            completed_interviews=completed,
+        )
+
+        return {}  # <-- no gather_status anymore
 
     # ----------------------------------------------------------------------
     def write_report(self, state: ResearchGraphState):
@@ -114,8 +161,8 @@ class AutonomousReportGenerator:
             self.logger.info("Report written successfully")
             return {"content": report.content}
         except Exception as e:
-            self.logger.error("Error writing main report", error=str(e))
-            raise ResearchAnalystException("Failed to write main report", e)
+            self.logger.exception("Error writing main report")
+            raise ResearchAnalystException("Failed to write main report")
 
     # ----------------------------------------------------------------------
     def write_introduction(self, state: ResearchGraphState):
@@ -135,8 +182,8 @@ class AutonomousReportGenerator:
             self.logger.info("Introduction generated", length=len(intro.content))
             return {"introduction": intro.content}
         except Exception as e:
-            self.logger.error("Error generating introduction", error=str(e))
-            raise ResearchAnalystException("Failed to generate introduction", e)
+            self.logger.exception("Error generating introduction")
+            raise ResearchAnalystException("Failed to generate introduction")
 
     # ----------------------------------------------------------------------
     def write_conclusion(self, state: ResearchGraphState):
@@ -320,14 +367,19 @@ class AutonomousReportGenerator:
         try:
             self.logger.info("Building report generation graph")
             builder = StateGraph(ResearchGraphState)
-            interview_graph = InterviewGraphBuilder(self.llm, self.tavily, self.checkpointer).build()
 
+            interview_graph = InterviewGraphBuilder(self.llm, self.tavily, checkpointer=None).build()
+
+            # ----------------------------
+            # Fan-out: start all interviews
+            # ----------------------------
             def initiate_all_interviews(state: ResearchGraphState):
                 topic = state.get("topic", "Untitled Topic")
-                analysts = state.get("analysts", [])
+                analysts = state.get("analysts", []) or []
                 if not analysts:
                     self.logger.warning("No analysts found — skipping interviews")
-                    return END
+                    return []
+
                 return [
                     Send(
                         "conduct_interview",
@@ -337,43 +389,84 @@ class AutonomousReportGenerator:
                             "max_num_turns": 2,
                             "context": [],
                             "interview": "",
-                            "sections": [],
                         },
                     )
                     for analyst in analysts
                 ]
 
+            # Nodes
             builder.add_node("create_analyst", self.create_analyst)
             builder.add_node("human_feedback", self.human_feedback)
-            builder.add_node("conduct_interview", interview_graph)
+            builder.add_node("prepare_interviews", self.prepare_interviews)
+
+            def conduct_interview_node(state: ResearchGraphState, config):
+                out = interview_graph.invoke(state, config)  # out is a dict
+
+                self.logger.info(
+                    "conduct_interview_node result",
+                    out_keys=list(out.keys()),
+                    sections_len=len(out.get("sections", []) or []),
+                    completed_delta=out.get("completed_interviews"),
+                )
+
+                return {
+                    "sections": out.get("sections", []) or [],
+                    "completed_interviews": out.get("completed_interviews", 0),
+                }
+
+            builder.add_node("conduct_interview", conduct_interview_node)
+
+            builder.add_node("gather_interviews", self.gather_interviews)
+
             builder.add_node("write_report", self.write_report)
             builder.add_node("write_introduction", self.write_introduction)
             builder.add_node("write_conclusion", self.write_conclusion)
+
             builder.add_node("finalize_report", self.finalize_report)
 
+            # Edges
             builder.add_edge(START, "create_analyst")
             builder.add_edge("create_analyst", "human_feedback")
+            builder.add_edge("human_feedback", "prepare_interviews")          # NEW
+
             builder.add_conditional_edges(
-                "human_feedback",
+                "prepare_interviews",
                 initiate_all_interviews,
-                ["conduct_interview", END]
+                ["conduct_interview", END],
             )
-            builder.add_edge("conduct_interview", "write_report")
-            builder.add_edge("conduct_interview", "write_introduction")
-            builder.add_edge("conduct_interview", "write_conclusion")
-            builder.add_edge(["write_report", "write_introduction", "write_conclusion"], "finalize_report")
+
+            # Join interviews
+            builder.add_edge("conduct_interview", "gather_interviews")
+
+            def route_after_gather(state: ResearchGraphState):
+                expected = state.get("expected_interviews", 0)
+                completed = state.get("completed_interviews", 0)
+                return "READY" if expected and completed >= expected else "WAIT"
+
+            # after interviews join
+            builder.add_conditional_edges(
+                "gather_interviews",
+                route_after_gather,
+                {
+                    "READY": "write_report",
+                    "WAIT": END,   # <-- IMPORTANT: no self-loop
+                },
+            )
+
+            # sequential writing (easy + deterministic)
+            builder.add_edge("write_report", "write_introduction")
+            builder.add_edge("write_introduction", "write_conclusion")
+            builder.add_edge("write_conclusion", "finalize_report")
             builder.add_edge("finalize_report", END)
 
-            # graph = builder.compile(interrupt_before=["human_feedback"], checkpointer=self.memory)
             graph = builder.compile(interrupt_before=["human_feedback"], checkpointer=self.checkpointer)
             self.logger.info("Report generation graph built successfully")
             return graph
-        except Exception as e:
-            self.logger.error("Error building report graph", error=str(e))
-            raise ResearchAnalystException("Failed to build report generation graph", e)
 
+        except Exception:
+            self.logger.exception("Error building report graph")
+            raise ResearchAnalystException("Failed to build report generation graph")
 
-# ----------------------------------------------------------------------
 if __name__ == "__main__":
     try:
         llm = ModelLoader().load_llm()

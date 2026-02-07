@@ -46,10 +46,6 @@ from research_and_analyst.database.db_config import (
 from research_and_analyst.utils.model_loader import ModelLoader
 from research_and_analyst.workflows.report_generator_workflow import AutonomousReportGenerator
 
-# Load .env that is stored inside research_and_analyst/
-# env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
-# env_path = os.path.abspath(env_path)
-
 app = FastAPI(title="Autonomous Report Generator UI")
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -80,7 +76,6 @@ async def show_login(request: Request):
 
 SESSIONS = {}
 
-# WORKFLOWS = {}  # session_id -> {"graph": graph, "generator": generator, "thread": thread}
 THREADS = {}  # session_id -> thread_id
 
 @app.post("/login", response_class=HTMLResponse)
@@ -144,9 +139,6 @@ async def generate_report(request: Request, topic: str = Form(...)):
             },
             )
 
-    # persist for /submit_feedback
-    # WORKFLOWS[session_id] = {"graph": graph, "generator": generator, "thread": thread, "topic": topic}
-
     feedback = ""
     return templates.TemplateResponse(
         "report_progress.html",
@@ -158,17 +150,6 @@ async def submit_feedback(request: Request, topic: str = Form(...), feedback: st
     session_id = request.cookies.get("session_id")
     if session_id not in SESSIONS:
         return RedirectResponse(url="/")
-
-    # wf = WORKFLOWS.get(session_id)
-    # if not wf:
-    #     return templates.TemplateResponse(
-    #         "report_progress.html",
-    #         {"request": request, "topic": topic, "feedback": feedback, "error": "No active workflow. Please generate report again."},
-    #     )
-
-    # graph = wf["graph"]
-    # generator = wf["generator"]
-    # thread = wf["thread"]
 
     # Option B-1: retrieve the thread_id created in /generate_report
     thread_id = THREADS.get(session_id)
@@ -212,7 +193,6 @@ async def submit_feedback(request: Request, topic: str = Form(...), feedback: st
     doc_path = generator.save_report(final_report, topic, "docx")
     pdf_path = generator.save_report(final_report, topic, "pdf")
 
-    # WORKFLOWS.pop(session_id, None)
     # Optional cleanup: end the workflow for this session
     THREADS.pop(session_id, None)
 

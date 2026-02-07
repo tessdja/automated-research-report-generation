@@ -1,9 +1,10 @@
 # models.py
 import operator
-from typing import Annotated, List
+from typing import Annotated, List, TypedDict
 from langgraph.graph import MessagesState
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
+from langchain_core.messages import BaseMessage
 
 # -------------------------------
 # Section Model
@@ -61,14 +62,22 @@ class InterviewState(MessagesState):
     context: Annotated[list, operator.add]  # Retrieved or searched context
     analyst: Analyst  # Analyst conducting interview
     interview: str  # Full interview transcript
-    sections: list  # Generated section from interview
+    # REQUIRED for parent graph to receive interview output
+    sections: Annotated[list, operator.add]
+    completed_interviews: Annotated[int, operator.add]
 
 class ResearchGraphState(TypedDict):
     topic: str  # Research topic
     max_analysts: int  # Number of analysts
     human_analyst_feedback: str  # Optional human feedback
     analysts: List[Analyst]  # All analysts involved
-    sections: Annotated[list, operator.add]  # All interview-generated sections
+    
+    # fan-in aggregation
+    expected_interviews: int
+    completed_interviews: Annotated[int, operator.add]
+
+    # already correct: sections appended across fan-out runs
+    sections: Annotated[list[str], operator.add] # All interview-generated sections
     introduction: str  # Introduction of final report
     content: str  # Main content of report
     conclusion: str  # Conclusion of final report

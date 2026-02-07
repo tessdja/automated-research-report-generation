@@ -13,3 +13,13 @@ logs
 
 archive/
 
+# Generated reports / outputs
+generated_report/
+checkpoints.sqlite*
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Optional: if you have a reports/output folder pattern
+*.pdf
+*.docx

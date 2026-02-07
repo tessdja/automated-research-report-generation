@@ -1,9 +1,24 @@
-from pathlib import Path
+import os
+import sqlite3
+from langgraph.checkpoint.sqlite import SqliteSaver
+
+# Keep a module-level connection so it doesn't get garbage-collected
+_CONN = None
+_SAVER = None
 
 def get_checkpointer():
-    from langgraph.checkpoint.sqlite import SqliteSaver  # common in recent versions
+    global _CONN, _SAVER
+    if _SAVER is not None:
+        return _SAVER
 
-    db_path = Path("data/checkpoints/langgraph.sqlite")
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+    db_path = os.path.join(project_root, "checkpoints.sqlite")
 
-    return SqliteSaver(str(db_path))
+    # Create a real sqlite connection
+    _CONN = sqlite3.connect(db_path, check_same_thread=False)
+
+    # Create a real saver instance (NOT a context manager)
+    _SAVER = SqliteSaver(_CONN)
+    return _SAVER
+
+
