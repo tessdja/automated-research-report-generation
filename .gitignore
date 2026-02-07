@@ -1,25 +1,40 @@
-# Python-generated files
+############################
+# Python / tooling
+############################
 __pycache__/
-*.py[oc]
+*.py[cod]
+*.pyo
 build/
 dist/
 wheels/
-*.egg-info
+*.egg-info/
 
-# Virtual environments
+############################
+# Virtual environments & secrets
+############################
 .venv/
 .env
-logs
-
+.env.*
+logs/
 archive/
 
-# Generated reports / outputs
-generated_report/
-checkpoints.sqlite*
-*.sqlite
-*.sqlite-wal
-*.sqlite-shm
+############################
+# Runtime state / checkpoints
+############################
+# LangGraph / LangChain / app state
+checkpoints.sqlite
+checkpoints.sqlite-wal
+checkpoints.sqlite-shm
 
-# Optional: if you have a reports/output folder pattern
-*.pdf
-*.docx
+############################
+# Generated outputs (NEVER commit)
+############################
+generated_report/
+
+############################
+# OS / editor noise
+############################
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
