@@ -588,3 +588,149 @@ Next, we’ll zoom in on the interview subgraph and explain:
 - why it’s a separate graph,
 - how it’s invoked from the parent,
 - and what tradeoffs that design introduces.
+
+### 6. Nested Interview Workflow
+The interview workflow is implemented as a **separate LangGraph graph** that is invoked by the parent report generator workflow.
+
+This section explains:
+- why the interview workflow is its own graph,
+- how it is executed from the parent,
+- what state it manages,
+- and the tradeoffs of this design.
+
+### 6.1 Why the interview workflow is a separate graph
+It may be tempting to implement interviews as a single node in the parent graph.
+
+Instead, this project uses **a nested graph** because:
+- Interviews themselves are multi-step processes
+- Each interview has internal structure (question generation, searching, synthesis)
+- Keeping it separate reduces complexity in the parent graph
+- The parent graph should orchestrate, not micromanage
+**Mental model:**
+> The parent workflow is the *project manager*.
+> The interview workflow is a *self-contained task* assigned to one analyst.
+
+### 6.2 Where the interview workflow is defined
+The interview workflow lives in:
+- `research_and_analyst/workflows/interview_workflow.py`
+The graph is built by:
+- `InterviewGraphBuilder`
+This builder:
+- defines interview-specific nodes,
+- wires their execution order,
+- and returns a compiled LangGraph graph.
+
+### 6.3 How the parent invokes the interview workflow
+The parent workflow does **not** manually call interview functions.
+
+Instead, it schedules work using LangGraph’s `Send` abstraction.
+
+Conceptually:
+```python
+for analyst in analysts:
+    Send(
+        node="conduct_interview",
+        input={ analyst-specific context }
+    )
+```
+
+Each `Send(...)`:
+- creates a **separate execution context**
+- runs independently of other interviews
+- executes the interview graph start → end
+- returns results back to the parent graph
+This is what enables safe fan-out.
+
+### 6.4 What state the interview workflow manages
+The interview graph has its **own internal state**, separate from the parent’s `ResearchGraphState`.
+
+Typical interview state includes:
+- the analyst’s role or perspective
+- the interview questions
+- search results
+- synthesized answers
+
+However:
+> The interview graph does **not** own long-lived state.
+
+Once an interview completes:
+- its outputs are merged into the **parent state**
+- the interview graph’s internal state can be discarded
+
+### 6.5 Why interview state is not persisted (yet)
+Unlike the parent workflow, the interview workflow currently:
+- runs quickly
+- is deterministic
+- does not require human intervention
+- completes in a single execution window
+
+Because of this, the system does not persist interview-level checkpoints.
+
+**Design tradeoff:**
+- Simpler implementation
+- Fewer persistence concerns
+- Faster execution
+**Risk:**
+- If the server crashes mid-interview, that interview must restart
+
+This is acceptable *for now* because:
+- interviews are relatively cheap
+- they can be rerun safely
+- results are not user-visible until aggregation
+
+### 6.6 How interview results flow back to the parent
+When an interview finishes, it returns structured outputs such as:
+- interview transcript or summary
+- a draft section relevant to the analyst’s perspective
+The parent workflow:
+- receives these outputs
+- appends them to aggregation fields like:
+    - `completed_interviews`
+    - `sections`
+This merge happens in the **fan-in node** (`gather_interviews`), not inside the interview workflow itself.
+
+This separation ensures:
+- interview logic stays isolated
+- aggregation logic stays centralized
+
+### 6.7 Why this separation matters
+- This design enables several important properties:
+- The parent graph remains readable and focused
+- Interview logic can evolve independently
+- New interview steps can be added without touching orchestration
+- Different interview graphs could be swapped in later
+
+For example:
+- a “deep technical interview” graph
+- a “market analysis interview” graph
+- a “risk assessment interview” graph
+All could plug into the same parent workflow.
+
+### 6.8 When you *would* persist interview workflows
+
+You might add persistence to interview graphs if:
+- interviews become long-running
+- interviews require human review
+- interviews depend on expensive external APIs
+- partial interview progress must be preserved
+
+At that point, interview graphs would need:
+- their own checkpointing
+- their own thread_ids
+- careful merge semantics back into the parent
+Your current design keeps this complexity out of scope intentionally.
+
+### 6.9 Summary
+The nested interview workflow:
+- is a self-contained LangGraph graph
+- runs once per analyst via fan-out
+- manages its own short-lived state
+- returns structured results to the parent
+- trades persistence for simplicity and speed
+This is a clean, scalable, and production-aware design choice.
+
+### Next: Persistence & Resume Semantics
+Next, we’ll zoom in on:
+- how the SQLite checkpointer works conceptually,
+- how thread_id ties everything together,
+- and how resume actually happens across HTTP requests.
