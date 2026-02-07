@@ -108,11 +108,11 @@ else:
 ```
 
 You declare flow like this:
-
+```
 Node A ──▶ Node B ──▶ Node C
           │
           └────▶ Node D
-
+```
 This is important because:
 - Execution order is explicit
 - Parallelism is possible
@@ -125,7 +125,7 @@ The graph **is the program.**
 One of the most important ideas in this project is **parallel execution.**
 
 Mentally, think:
-
+```
 Prepare Interviews
 │
 ├── Interview Analyst A
@@ -133,7 +133,7 @@ Prepare Interviews
 ├── Interview Analyst C
 │
 Gather Results
-
+```
 Key points:
 - Each interview runs independently
 - Each interview updates shared state
