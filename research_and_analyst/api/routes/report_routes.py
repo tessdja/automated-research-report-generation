@@ -14,7 +14,7 @@ async def generate_report(request: ReportRequest):
         response = service.start_report_generation(request.topic, request.max_analysts)
         return response
     except Exception as e:
-        logger.error("API error during report generation", error=str(e))
+        logger.exception("API error during report generation")
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.post("/feedback")
@@ -23,7 +23,7 @@ async def update_feedback(request: FeedbackRequest):
     try:
         return service.submit_feedback(request.thread_id, request.feedback)
     except Exception as e:
-        logger.error("API error during feedback update", error=str(e))
+        logger.exception("API error during feedback update")
         raise HTTPException(status_code=500, detail=str(e))
     
 @router.get("/status/{thread_id}")
@@ -32,6 +32,6 @@ async def get_status(thread_id: str):
     try:
         return service.get_report_status(thread_id)
     except Exception as e:
-        logger.error("API error during status check", error=str(e))
+        logger.exception("API error during status check")
         raise HTTPException(status_code=500, detail=str(e))
 
