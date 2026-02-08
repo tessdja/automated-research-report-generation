@@ -1374,3 +1374,187 @@ Next, we can document:
 - how to introduce quality gates,
 - and how to enforce safety and consistency without breaking the workflow model.
 
+### 11. Evaluation & Guardrails Hooks
+This section explains where and how evaluation and guardrails can be added to the existing workflow without changing its fundamental architecture.
+
+The key idea is:
+> Evaluation and guardrails should be hooks on top of the workflow, not rewrites of it.
+Your current design already makes this possible.
+
+### 11.1 Why evaluation and guardrails matter in agentic systems
+Agentic workflows introduce new risks compared to single-call LLM apps:
+- Outputs are composed across multiple steps
+- Errors can accumulate silently
+- One bad agent output can affect the final report
+- Quality regressions may go unnoticed
+
+Evaluation and guardrails help answer:
+- “Is this output good?”
+- “Is it safe to use?”
+- “Is quality improving or degrading over time?”
+
+### 11.2 Where evaluation fits in the workflow
+In your architecture, evaluation can be added at three natural points:
+- Per-node evaluation (local quality checks)
+- Aggregation-level evaluation (cross-agent consistency)
+- Final output evaluation (end-to-end quality)
+Each level serves a different purpose.
+
+### 11.3 Per-node evaluation hooks
+Per-node evaluation checks the output of individual nodes.
+
+Examples:
+- Did an interview produce non-empty content?
+- Did a section stay within expected length?
+- Did the LLM follow structural instructions?
+
+**Where to add it:**
+- Immediately after nodes like `conduct_interview`
+- Before merging results into shared state
+**How to implement (conceptually):**
+- Add evaluation metadata to state:
+    - `interview_quality_score`
+    - `section_valid = true/false`
+- Log failures but allow execution to continue (initially)
+**Why this works well here:**
+- Nodes already produce discrete outputs
+- Evaluation stays localized
+- Failures are easier to attribute
+
+### 11.4 Aggregation-level evaluation
+Aggregation-level evaluation checks consistency across agents.
+
+Examples:
+- Do multiple sections contradict each other?
+- Are key concepts missing from most interviews?
+- Is one analyst’s output wildly off-topic?
+**Where to add it:**
+- In or immediately after `gather_interviews`
+- Before report synthesis begins
+**Possible checks:**
+- Similarity comparisons between sections
+- Coverage checks (did all expected themes appear?)
+- Length or balance checks across analysts
+State impact:
+- Add flags like:
+    - `aggregation_warnings`
+    - `low_consensus_detected`
+These signals can:
+- inform the writer prompt,
+- trigger retries,
+- or be surfaced to a human reviewer.
+
+### 11.5 Final output evaluation
+Final output evaluation treats the report as a single artifact.
+
+Examples:
+- Overall coherence
+- Tone consistency
+- Structural completeness
+- Factual alignment (where possible)
+**Where to add it:**
+- After `finalize_report`
+- Before saving or publishing
+**Possible strategies:**
+- LLM-as-a-judge evaluation
+- Rule-based checks (length, sections present)
+- Regression comparisons against prior runs
+**Important design choice:**
+> Final evaluation should not mutate the report by default.
+
+Instead, it should:
+- produce evaluation metadata,
+- flag issues,
+- and optionally block publication.
+
+### 11.6 Guardrails vs evaluation (important distinction)
+Although related, these serve different purposes:
+
+```
+| Concept    | Purpose                            |
+| ---------- | ---------------------------------- |
+| Evaluation | Measure quality or correctness     |
+| Guardrails | Prevent unsafe or invalid behavior |
+```
+
+Evaluation answers: *“How good is this?”*
+Guardrails answer: *“Is this allowed?”*
+
+### 11.7 Guardrail insertion points
+Guardrails can be added at several layers:
+#### A) Input guardrails
+- Validate research topic
+- Enforce allowed domains
+- Reject disallowed content early
+**Where:** before `create_analyst`
+
+#### B) Tool-level guardrails
+- Restrict search domains
+- Enforce API usage limits
+- Sanitize tool inputs
+**Where:** inside interview workflow tools
+
+#### C) Output guardrails
+- Check for prohibited content
+- Enforce tone or policy constraints
+- Prevent hallucinated citations
+**Where:** after `write_report` or `finalize_report`
+
+### 11.8 Guardrails as state, not side effects
+A key architectural principle:
+Guardrails should write signals into state, not silently stop execution.
+
+Examples:
+- `content_flagged = true`
+- `guardrail_reason = "policy_violation"`
+This allows:
+- human review,
+- auditability,
+- and controlled recovery paths.
+
+### 11.9 Automated retries and recovery
+Evaluation and guardrails enable controlled retries.
+
+Examples:
+- Retry an interview if quality score < threshold
+- Re-run synthesis if coherence score is low
+- Request clarification from a human if ambiguity is detected
+Because your workflow is graph-based:
+- retries can be modeled as conditional edges,
+- recovery logic stays explicit,
+- and state evolution remains traceable.
+
+### 11.10 Why your architecture is ready for this
+Your current system already supports evaluation and guardrails because:
+- State is explicit and extensible
+- Nodes are isolated and predictable
+- Aggregation is centralized
+- Pause/resume is already implemented
+- Persistence ensures auditability
+
+Adding evaluation does not require:
+- rewriting nodes,
+- changing execution semantics,
+- or abandoning LangGraph.
+It’s an additive layer.
+
+### 11.11 Summary
+Evaluation and guardrails are not an afterthought in this design — they are natural extensions.
+
+Your architecture supports:
+- per-node quality checks,
+- cross-agent consistency evaluation,
+- final artifact scoring,
+- safety and policy guardrails,
+- and controlled retries.
+This positions the system well for:
+- experimentation,
+- quality regression testing,
+- and eventual production hardening.
+
+### Next: Future Improvements & Scaling Notes
+The final section can document:
+- scaling strategies,
+- multi-user considerations,
+- deployment patterns,
+- and how this system could evolve into a production service.
