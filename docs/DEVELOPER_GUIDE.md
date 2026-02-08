@@ -1558,3 +1558,128 @@ The final section can document:
 - multi-user considerations,
 - deployment patterns,
 - and how this system could evolve into a production service.
+
+### 12. Future Improvements & Scaling Notes
+This section outlines **how the system could evolve from a learning-focused, single-instance application into a more scalable, production-grade service.**
+
+The goal is not to propose a full redesign, but to show that:
+- the current architecture has clear growth paths,
+- scaling concerns are understood,
+- and future work can be incremental rather than disruptive.
+
+### 12.1 Persisting session-to-workflow mapping
+**Current state:**
+- `session_id → thread_id` mapping lives in memory
+- Workflow state itself is already persisted via SQLite
+**Improvement:**
+- Persist session-to-thread mapping in a database (or Redis)
+**Benefits:**
+- Resume works across server restarts
+- Multiple web instances can serve the same workflows
+- Workflow ownership becomes explicit and auditable
+This is the single most impactful improvement for durability.
+
+### 12.2 Multi-user and multi-tenant support
+To support many users concurrently, the system would need:
+- User authentication (beyond anonymous sessions)
+- Workflow ownership checks
+- Namespace separation in state and storage
+**Possible approach:**
+- Add user_id to workflow metadata
+- Enforce ownership checks before resume
+- Scope thread access by user
+This builds naturally on the existing thread_id model.
+
+### 12.3 Scaling execution beyond a single process
+**Current model:**
+- One FastAPI process
+- One LangGraph executor
+- SQLite checkpointer
+**Scaling options:**
+- Move from SQLite to a shared database
+- Use a task queue (Celery, Dramatiq, or similar) for long-running nodes
+- Run interviews on worker pools
+The parent/child workflow separation already supports this evolution.
+
+### 12.4 Horizontal scaling and stateless web servers
+With session mapping persisted:
+- Web servers can become stateless
+- Any instance can resume any workflow
+- Load balancing becomes straightforward
+
+At that point:
+- FastAPI becomes a thin orchestration layer
+- Workflow execution becomes a backend service
+
+### 12.5 Workflow status tracking and dashboards
+A natural next step is to track workflow status explicitly:
+
+Examples:
+- `created`
+- `running`
+- `paused`
+- `completed`
+- `failed`
+
+This enables:
+- Admin dashboards
+- User-visible progress indicators
+- Retry and resume controls
+- SLA monitoring
+Much of this data already exists implicitly in checkpoints.
+
+### 12.6 Performance optimization opportunities
+As usage grows, performance tuning could include:
+- Caching interview results
+- Reusing embeddings or search results
+- Parallelizing synthesis where appropriate
+- Limiting state size via external artifact storage
+These optimizations do not require architectural changes.
+
+### 12.7 Deployment and environment separation
+For real deployments, you would typically add:
+- Environment-specific configs (dev/staging/prod)
+- Secrets management
+- API key rotation
+- Per-environment checkpointer storage
+Your current design already supports this separation cleanly.
+
+### 12.8 Observability at scale
+As the system grows:
+- Logs should be centralized
+- Workflow metrics should be tracked
+- Alerts should be configured for stuck or failed runs
+Because identifiers (thread_id, node names) are already part of the mental model, this observability layer can be added cleanly.
+
+### 12.9 Why the current design scales conceptually
+The most important takeaway:
+> The system already thinks in terms of **durable processes**, not requests.
+
+Because of that:
+- persistence is built-in,
+- pause/resume is explicit,
+- workflows are addressable and inspectable,
+- and scaling becomes an operational concern, not a conceptual rewrite.
+
+### 12.10 Final thoughts
+This project intentionally prioritizes:
+- clarity over premature optimization,
+- explicit state over implicit context,
+- and learning value over feature completeness.
+At the same time, it mirrors real production patterns closely enough that:
+- most future improvements are additive,
+- failure modes are understood,
+- and the system can evolve without being rewritten.
+
+This makes it a strong foundation both as:
+- a learning artifact, and
+- a realistic agentic AI system design.
+
+### End of Developer Appendix
+
+This concludes the Developer Appendix.
+
+Together with the README, this document provides:
+- a beginner-friendly narrative,
+- a detailed technical walkthrough,
+- and a clear roadmap for future evolution.
