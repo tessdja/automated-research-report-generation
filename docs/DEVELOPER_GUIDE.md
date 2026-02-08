@@ -1033,3 +1033,175 @@ Human-in-the-loop in this system is:
 - implemented via explicit interrupt points,
 - resumed via targeted state updates.
 This is a production-grade pattern for safely integrating human judgment into agentic AI workflows.
+
+### 9. Observability & Debugging Workflow Runs
+Agentic workflows are harder to debug than normal request/response apps because:
+- execution spans multiple steps (nodes),
+- work may happen in parallel,
+- the system may pause and resume later,
+- and failures can occur mid-graph.
+This section documents **how to observe what’s happening and how to debug common failure modes** in a LangGraph-based workflow like this one.
+
+### 9.1 What you should be able to answer while debugging
+When something goes wrong, you want quick answers to:
+1. Which workflow instance is this? (Which thread_id?)
+2. What node was running last?
+3. What does state look like right now?
+4. Are we paused intentionally or stuck?
+5. If parallel work is involved: how many tasks are expected vs completed?
+Your logging and checkpointing strategy should be designed to answer those questions.
+
+### 9.2 Logging best practices for agentic workflows
+#### A) Log with identifiers every time
+At minimum, include:
+- `session_id` (web session concept)
+- `thread_id` (workflow instance concept)
+- `topic` (optional but very helpful)
+- `node_name` (critical)
+Even if you don’t have a full tracing system, these fields alone let you reconstruct the flow.
+
+#### B) Use log.exception for errors
+For failures inside nodes (or external calls), prefer:
+- `log.exception("...", extra_context...)`
+This captures the stack trace and contextual fields together, which is gold when debugging multi-step flows.
+
+#### C) Prefer structured logs for stateful systems
+A good pattern is “log events,” not “log sentences.”
+
+Examples of high-signal events:
+- `workflow_started`
+- `node_started`
+- `node_completed`
+- `workflow_paused`
+- `workflow_resumed`
+- `fanout_scheduled`
+- `fanin_join_check`
+- `report_generated`
+
+### 9.3 What to log at each node
+For each node, log:
+**Start of node**
+- `node_name`
+- `thread_id`
+- `key_inputs` (only a few fields; don’t dump everything)
+**End of node**
+- `node_name`
+- `thread_id`
+- `key_outputs` (again, a few fields)
+- duration (if easy)
+
+**Example (conceptual):**
+- Start `prepare_interviews`: analysts_count=3
+- End `prepare_interviews`: expected_interviews=3
+
+### 9.4 Don’t log the whole state (most of the time)
+It’s tempting to dump the entire state, but it’s usually a mistake:
+- logs become huge and unreadable
+- you may accidentally log sensitive content
+- it becomes impossible to spot key signals
+
+Instead, log **summaries:**
+- `len(analysts)`
+- `expected_interviews`
+- `len(completed_interviews)`
+- `sections_count`
+- flags like `has_feedback`
+If you need the full state, use checkpoints as the source of truth.
+
+### 9.5 Inspecting checkpoints (the “truth” during debugging)
+Checkpointing gives you something better than logs:
+the exact state snapshot at specific points in time.
+
+When debugging a stuck workflow, checkpoint inspection can answer:
+- what node was next,
+- what counters were set to,
+- what outputs were already accumulated.
+
+**Recommended debugging approach:**
+1. Identify thread_id
+2. Locate latest checkpoint for that thread_id
+3. Inspect relevant fields:
+    - `expected_interviews`
+    - `completed_interviews`
+    - `sections`
+    - `human_analyst_feedback`
+Even without fancy tools, this is extremely powerful.
+
+### 9.6 Debugging the most common problems
+**Problem A: Workflow looks “stuck” after fan-out**
+**Symptom:**
+- Interviews ran, but workflow never proceeds to report writing.
+**Most likely cause:**
+- Join condition never becomes true because:
+    - `expected_interviews` is wrong
+    - `completed_interviews` is not being appended correctly
+    - interview results are not being merged where you think they are
+**What to check:**
+- Log `expected_interviews` after prepare_interviews
+- Log `len(completed_interviews)` each time you aggregate
+- Confirm aggregation happens in `gather_interviews`
+- Verify that each interview run actually returns the expected payload
+
+**Problem B: Workflow resumes but repeats earlier steps**
+**Symptom:**
+- After feedback, it seems to “start over.”
+**Most likely cause:**
+- Wrong `thread_id` passed on resume (new workflow instance)
+- Or you accidentally compiled a new graph without the same checkpointer/config
+**What to check:**
+- Ensure `/submit_feedback` uses the same `thread_id`
+- Ensure the graph is compiled with the persistent checkpointer
+- Confirm `interrupt_before` is configured consistently
+
+**Problem C: Workflow pauses unexpectedly**
+**Symptom:**
+- It stops, but you didn’t intend it to.
+**Most likely cause:**
+- Interrupt configured on the wrong node
+- Conditional edges route back into the interrupt node
+**What to check:**
+- Confirm the configured interrupt nodes
+- Confirm graph edges and conditional branches
+
+### 9.7 Lightweight “tracing” without a tracing system
+Even without OpenTelemetry or LangSmith, you can create a reliable trace by logging:
+- `workflow_started` with `thread_id`
+- `node_started` with node name
+- `node_completed` with node name
+- `workflow_paused`
+- `workflow_resumed`
+- `workflow_completed`
+That sequence alone becomes a timeline of the run.
+This is often enough to debug 90% of issues.
+
+### 9.8 What to add later (real production observability)
+If you later want production-grade observability, consider:
+- **LangSmith** (for LangChain/LangGraph traces)
+- OpenTelemetry + a collector (Jaeger/Tempo)
+- Structured logs shipped to a log platform (ELK, Datadog, etc.)
+- A small “workflow runs” table:
+    - `thread_id`
+    - current node
+    - status (running/paused/complete/failed)
+    - timestamps
+    - topic
+
+This makes it easy to build:
+- an admin dashboard
+- retry/resume controls
+- workflow health metrics
+
+### 9.9 Summary
+Good observability for agentic workflows means:
+- logging the right identifiers (thread_id, node_name)
+- logging summaries, not full state dumps
+- using checkpoints as the truth
+- explicitly instrumenting fan-out/fan-in joins
+With these in place, debugging becomes systematic instead of guesswork.
+
+### Next: Evaluation & Guardrails Hooks
+Next, we can document where and how to add:
+- evaluation (quality checks, regression tests, RAG scoring),
+- guardrails (content filters, safety checks, prompt constraints),
+- and automated retries for flaky tools.
+
