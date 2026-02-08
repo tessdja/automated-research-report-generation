@@ -734,3 +734,164 @@ Next, we’ll zoom in on:
 - how the SQLite checkpointer works conceptually,
 - how thread_id ties everything together,
 - and how resume actually happens across HTTP requests.
+
+### 7. Persistence & Resume Semantics
+This section explains how your system **pauses, saves state, and resumes later** — which is the key difference between a toy agent demo and a production-oriented workflow.
+
+We’ll cover:
+- what “checkpointing” means in LangGraph terms,
+- what thread_id really represents,
+- what survives a restart (and what doesn’t),
+- and how your FastAPI endpoints coordinate resume.
+
+### 7.1 The two layers of “state” in this app
+It helps to separate workflow state from application session state:
+
+#### A) Workflow state (LangGraph state)
+This is the big shared object we’ve been discussing (ResearchGraphState).
+- Owned by LangGraph
+- Mutated by nodes
+- Persisted by the checkpointer
+- Used to resume execution mid-graph
+
+#### B) Web app session state (FastAPI layer)
+This is your web-layer concept of “who is this user/session?”
+
+Examples in your API layer:
+- cookie-based `session_id`
+- in-memory maps like `SESSIONS`and `WORKFLOWS`
+- (often) a `session_id → thread_id` mapping
+
+**Key point:**
+> LangGraph persistence covers workflow state, **not** your web app session bookkeeping.
+That separation is normal—and it’s why production deployments often persist *both* layers.
+
+### 7.2 What checkpointing means (plain English)
+A checkpoint is a snapshot of:
+- the **current workflow state**, and
+- the **execution position** (which node will run next)
+
+In plain terms:
+> “If the system crashes right now, we can reload the last saved snapshot and continue.”
+LangGraph uses checkpointing to make the workflow behave like a durable process rather than an in-memory script.
+
+### 7.3 What the SQLite checkpointer stores
+Your SQLite-based checkpointer persists:
+- the serialized state object (e.g., `ResearchGraphState`)
+- metadata needed to resume execution
+- checkpoints keyed by identifiers (primarily `thread_id`)
+**Important mental model:**
+> SQLite is acting like a tiny workflow database.
+
+It’s not storing “final outputs only.”
+It’s storing the *in-progress brain* of the workflow.
+
+### 7.4 The role of thread_id
+A `thread_id` is the stable identifier for **one workflow instance**.
+
+If you remember only one thing from this section, remember this:
+> thread_id **is how LangGraph knows which checkpoint history to load**.
+
+So:
+- Same `thread_id` → same workflow instance → resume the same state
+- New `thread_id` → brand new workflow instance
+
+This is why, in practice:
+- you generate a `thread_id` at the start of `/generate_report`
+- you reuse that exact `thread_id` during `/submit_feedback`
+
+### 7.5 Resume requires two things
+To resume a workflow later, you need **both**:
+1. The **checkpointer** (SQLite) containing prior checkpoints
+2. The correct thread_id so LangGraph can retrieve them
+Missing either one breaks resume:
+- No checkpointer → nothing to load
+- Wrong thread_id → loads a different workflow (or starts fresh)
+
+### 7.6 How pause/resume works with `interrupt_before`
+You configured the graph so it intentionally stops before a node such as:
+- `human_feedback`
+
+This makes the workflow behave like:
+1. Run nodes up to the interrupt point
+2. Save state checkpoint
+3. Stop execution
+4. Wait for external input
+5. Update state with that input
+6. Resume execution from the paused position
+This is exactly what **“human-in-the-loop”** should look like in production.
+
+### 7.7 How `/generate_report` and `/submit_feedback` **coordinate**
+Here’s the canonical request flow:
+
+`/generate_report`
+- creates a new `thread_id`
+- starts the parent graph with config that includes that `thread_id`
+- runs until it hits the interrupt point
+- returns a UI page that asks the user for feedback
+- stores the workflow handle and thread id somewhere (currently in memory)
+
+`/submit_feedback`
+- receives the feedback text
+- retrieves the same workflow instance (and same `thread_id`)
+- updates the workflow state at the `human_feedback` node
+- resumes the graph from that checkpoint forward
+- returns progress and eventually the final report
+
+Key point:
+`/submit_feedback` is not “starting a new run”—it is continuing an existing run.
+
+### 7.8 What survives a server restart vs what doesn’t
+This is critical for understanding your current limitations.
+
+✅ Survives restart
+- LangGraph workflow state (stored in SQLite)
+- The fact that execution was paused at human_feedback
+- Any completed interviews and accumulated sections
+
+❌ Does NOT survive restart (currently)
+- in-memory Python dicts like SESSIONS, WORKFLOWS, etc.
+- your ability to map a browser session back to the correct thread_id
+- any live “workflow handle” objects stored in memory
+This is why, in production, you’d persist:
+- `session_id → thread_id` mapping in Redis or a database
+- enough metadata to reconstruct and resume workflows on demand
+
+### 7.9 The “resume contract” you are enforcing
+You are implicitly defining this contract:
+- The web layer owns user identity (session_id)
+- The workflow layer owns durable state (thread_id + checkpoints)
+- Resume is possible if the web layer can recover the correct thread_id
+This is a clean separation of concerns.
+
+### 7.10 Practical next improvement (production-grade)
+The most impactful improvement to make resume truly durable across restarts:
+✅ Persist `session_id → thread_id` in a database table (or Redis)
+
+Example table shape:
+- `session_id` (primary key)
+- `thread_id`
+- `created_at`
+- `updated_at`
+- `status` (paused/running/complete/failed)
+- `topic`
+
+Then `/submit_feedback` can:
+- look up thread_id reliably
+- resume even if the server restarted
+- avoid losing track of workflows
+
+### 7.11 Summary
+Checkpointing + `thread_id` is what makes the workflow resumable.
+- The checkpointer persists the evolving state
+- thread_id selects the correct workflow instance
+- interrupt_before defines a clean pause boundary
+- Resume works if your web layer can retrieve the same thread_id
+Your current design is already very close to a real production pattern—the remaining step is persisting the session-to-thread mapping.
+
+### Next: Observability & Debugging Workflow Runs
+Next, we can document:
+- how to inspect checkpoints,
+- how to log state transitions cleanly,
+- how to debug stuck fan-in joins,
+- and how to add tracing without cluttering nodes.
