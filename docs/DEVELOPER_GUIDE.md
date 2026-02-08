@@ -895,3 +895,141 @@ Next, we can document:
 - how to log state transitions cleanly,
 - how to debug stuck fan-in joins,
 - and how to add tracing without cluttering nodes.
+
+### 8. Human-in-the-Loop Mechanics
+This section explains **how and why human input is integrated into the workflow**, and what makes this approach different from ad-hoc “pause and ask the user” patterns.
+
+Human-in-the-loop (HITL) here is not a UI trick — it is a **first-class workflow capability**.
+
+### 8.1 What “human-in-the-loop” means in this system
+In many AI apps, “human-in-the-loop” really means:
+> Pause the UI → ask the user → restart everything with a new prompt
+
+That approach:
+- discards previous work,
+- re-runs expensive steps,
+- makes state implicit and fragile.
+
+In this system, human-in-the-loop means:
+> **Pause a running workflow, persist its state, accept human input, then resume from the exact same point.**
+
+No work is repeated.
+No context is reconstructed from prompts.
+State continuity is preserved.
+
+### 8.2 Where the pause happens in the workflow
+The pause is intentionally placed after analysts are created but before interviews begin.
+
+Why here?
+- Analysts define the structure of the work
+- Interviews are the most expensive and time-consuming step
+- This is the last “cheap” decision point
+
+At this moment, the workflow knows:
+- who the analysts are,
+- what perspectives exist,
+- what the topic is,
+…but no irreversible work has started yet.
+
+### 8.3 How LangGraph implements the pause
+LangGraph supports pausing via interrupt points.
+
+When compiling the graph, the workflow is configured with something like:
+- `interrupt_before = ["human_feedback"]`
+
+This means:
+- execution runs normally up to that node,
+- a checkpoint is written,
+- execution stops before the node runs,
+- control returns to the application.
+From LangGraph’s perspective, this is **normal execution**, not an error.
+
+### 8.4 What state looks like at the pause point
+At the pause point:
+- `analysts` is populated
+- `topic` is known
+- `human_analyst_feedback` is not yet set
+- execution pointer is positioned at `human_feedback`
+This is a **stable, resume-safe state.**
+
+You could:
+- restart the server,
+- resume days later,
+- inspect the checkpoint,
+- or even modify state manually (for debugging).
+
+### 8.5 How human input is applied
+When the user submits feedback:
+- the application does not start a new workflow
+- it updates the existing workflow state
+
+Conceptually:
+```python
+update_state(
+  as_node="human_feedback",
+  values={ "human_analyst_feedback": user_input }
+)
+```
+
+Key points:
+- The update is associated with a specific node
+- The state mutation is explicit and auditable
+- LangGraph knows exactly where execution should resume
+This is far safer than injecting feedback mid-prompt.
+
+### 8.6 Why `as_node` matters
+The `as_node` parameter tells LangGraph:
+> “Treat this update as if it happened at this node.”
+
+This matters because:
+- it preserves execution semantics,
+- it avoids skipping or re-running nodes,
+- it keeps the workflow graph consistent.
+Without `as_node`, state updates can become ambiguous or unsafe.
+
+### 8.7 Resume behavior after feedback
+Once feedback is applied:
+- the workflow resumes immediately after human_feedback
+- downstream nodes see the updated state
+- interviews incorporate human guidance naturally
+
+From the workflow’s perspective:
+- nothing special happened
+- state was updated
+- execution continued
+
+This is exactly how a durable process should behave.
+
+### 8.8 Why this pattern scales well
+This HITL pattern scales because:
+- You can add **multiple pause points**
+- You can pause for different roles (reviewer, editor, approver)
+- You can enforce approval gates
+- You can support long-running reviews
+
+Examples:
+- Pause before publishing
+- Pause before using external tools
+- Pause before high-risk actions
+All without rewriting control flow.
+
+### 8.9 Common mistakes this design avoids
+This design avoids:
+- Re-prompting the model with reconstructed context
+- Losing intermediate results
+- Duplicating expensive LLM calls
+- Mixing UI logic with workflow logic
+- Hiding state changes inside prompts
+
+Instead:
+- state is explicit,
+- pauses are deliberate,
+- resumes are deterministic.
+
+### 8.10 Summary
+Human-in-the-loop in this system is:
+- a graph-level capability,
+- backed by persistent state,
+- implemented via explicit interrupt points,
+- resumed via targeted state updates.
+This is a production-grade pattern for safely integrating human judgment into agentic AI workflows.
