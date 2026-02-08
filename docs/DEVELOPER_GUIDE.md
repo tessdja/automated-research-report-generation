@@ -1205,3 +1205,172 @@ Next, we can document where and how to add:
 - guardrails (content filters, safety checks, prompt constraints),
 - and automated retries for flaky tools.
 
+### 10. Failure Modes & Design Tradeoffs
+This section documents **what can go wrong in this system, why those risks exist, and which tradeoffs were made intentionally.**
+
+The goal is not to claim the system is perfect, but to show:
+- awareness of real-world failure modes,
+- deliberate architectural choices,
+- and a clear path toward production hardening.
+
+### 10.1 Why documenting failure modes matters
+Agentic workflows are inherently more complex than single-call AI systems because they are:
+- long-running,
+- stateful,
+- parallel,
+- and interruptible.
+That complexity introduces new classes of failure.
+
+By documenting failure modes explicitly, we:
+- reduce surprise during debugging,
+- clarify system boundaries,
+- and make future improvements intentional instead of reactive.
+
+### 10.2 In-memory session tracking (intentional limitation)
+**Current design:**
+- Browser sessions are tracked using in-memory Python structures (e.g., SESSIONS, WORKFLOWS)
+- Mapping between session_id and thread_id is not persisted
+**Failure mode:**
+- If the server restarts:
+    - workflow state still exists in SQLite
+    - but the web layer loses knowledge of which workflow belongs to which user
+- Users may be unable to resume a paused workflow
+
+Why this tradeoff was made:
+- Keeps the initial implementation simple
+- Avoids introducing a database dependency early
+- Keeps focus on workflow orchestration, not user management
+
+Production upgrade path:
+- Persist `session_id → thread_id` in a database or Redis
+- Add workflow status tracking (paused / running / complete / failed)
+
+### 10.3 Interview-level non-persistence
+**Current design:**
+- Interview subgraphs are not checkpointed
+- Each interview runs start → finish in one execution
+**Failure mode:**
+- If the server crashes mid-interview:
+    - that interview must be rerun
+    - partial interview progress is lost
+**Why this tradeoff was made:**
+- Interviews are relatively short-lived
+- No human intervention is required mid-interview
+- Re-running an interview is usually safe and inexpensive
+**Production upgrade path:**
+- Add checkpointing to interview graphs
+- Introduce interview-level `thread_ids`
+- Persist partial interview state for very long or expensive interviews
+
+### 10.4 Fan-in synchronization errors
+**Failure mode:**
+- Workflow appears “stuck” after interviews
+- Report writing never begins
+**Typical causes:**
+- `expected_interviews` miscounted
+- Interview results not merged correctly
+- Fan-in logic checks the wrong condition
+**Why this risk exists:**
+- Fan-out / fan-in is inherently stateful
+- Parallel execution introduces coordination complexity
+**Mitigations already in place:**
+- Explicit counters (expected_interviews, completed_interviews)
+- Centralized aggregation node (gather_interviews)
+- Clear join condition
+**Further hardening options:**
+- Timeout detection
+- Sanity checks on aggregation counts
+- Alerting when fan-in stalls
+
+### 10.5 Resume with incorrect thread_id
+**Failure mode:**
+- Workflow resumes but appears to “start over”
+- Or resumes the wrong workflow entirely
+**Root cause:**
+- Incorrect or missing thread_id during resume
+- New workflow instance accidentally created
+**Why this risk exists:**
+- Resume correctness depends entirely on thread_id
+- Thread identity is currently managed by the application layer
+**Mitigations:**
+- Strict reuse of thread_id across /generate_report and /submit_feedback
+- Logging thread_id at every critical step
+**Production upgrade path:**
+- Persist thread ownership in a database
+- Enforce ownership and validity checks before resume
+
+### 10.6 Partial failures in external tools
+**Failure mode:**
+- Web search fails
+- LLM call times out
+- One interview succeeds while another fails
+**Why this risk exists:**
+- The system depends on external APIs
+-Parallel execution increases exposure to partial failures
+**Current handling:**
+- Errors are logged with context
+- Failed interviews can be retried implicitly by rerunning the workflow
+**Potential improvements:**
+- Explicit retry policies per tool
+- Marking failed interviews in state
+- Allowing partial reports with warnings
+
+### 10.7 Human feedback ambiguity
+**Failure mode:**
+- Human feedback is empty, vague, or contradictory
+- Analysts receive unclear guidance
+**Why this risk exists:**
+- Humans are part of the loop
+- Feedback is free-form text
+**Current handling:**
+- Feedback is optional
+- Empty feedback is treated as “no changes requested”
+**Future improvements:**
+- Structured feedback forms
+- Validation or summarization of feedback
+- Feedback versioning in state
+
+### 10.8 State growth over long runs
+**Failure mode:**
+- State grows large over time (many interviews, long text)
+- Checkpoints become heavier to store and load
+**Why this risk exists:**
+- State stores real content, not just metadata
+- Long-form text accumulates naturally
+**Why this is acceptable now:**
+- SQLite handles moderate payload sizes well
+- Typical workflows are bounded
+**Future mitigation strategies:**
+- Store large artifacts externally (files, object storage)
+- Keep references in state instead of full content
+- Periodic state compaction
+
+### 10.9 Why these tradeoffs are acceptable
+All of the above tradeoffs share a common theme:
+> The system optimizes first for clarity, correctness, and learning value, not maximum scale.
+
+This is intentional.
+The architecture:
+- mirrors real production patterns,
+- keeps complexity visible,
+- and leaves clear extension points.
+None of the tradeoffs require a redesign to fix — only incremental hardening.
+
+### 10.10 Summary
+This system intentionally accepts certain failure modes in exchange for:
+- simpler initial implementation,
+- clearer mental models,
+- and easier iteration.
+
+Crucially:
+- state boundaries are explicit,
+- persistence is already in place,
+- and most failure modes have clear upgrade paths.
+This makes the system a strong foundation for future productionization.
+
+### Next: Evaluation & Guardrails Hooks
+Next, we can document:
+- where to add automated evaluation,
+- how to introduce quality gates,
+- and how to enforce safety and consistency without breaking the workflow model.
+
