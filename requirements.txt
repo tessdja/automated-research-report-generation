@@ -23,4 +23,3 @@ python-multipart==0.0.22
 
 langgraph-checkpoint-sqlite==3.0.3
 
--e .

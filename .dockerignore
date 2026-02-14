@@ -1,0 +1,68 @@
+# ---------------------------
+# Python
+# ---------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ---------------------------
+# Virtual environments
+# ---------------------------
+env/
+.venv/
+venv/
+.env
+
+# ---------------------------
+# Jupyter / notebooks
+# ---------------------------
+.ipynb_checkpoints/
+*.ipynb
+
+# ---------------------------
+# Git / VCS
+# ---------------------------
+.git
+.gitignore
+
+# ---------------------------
+# Logs & runtime artifacts
+# ---------------------------
+*.log
+logs/
+
+# ---------------------------
+# App data / experiments
+# ---------------------------
+data/
+archive/
+docs/
+generated_report/
+
+# ---------------------------
+# Packaging artifacts
+# ---------------------------
+*.egg-info/
+build/
+dist/
+
+# ---------------------------
+# Tooling / IDE
+# ---------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ---------------------------
+# Tests & lint (optional)
+# ---------------------------
+.coverage
+pytest_cache/
+.mypy_cache/
+
+uv.lock
+
+

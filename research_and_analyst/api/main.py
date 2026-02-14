@@ -34,6 +34,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from starlette.status import HTTP_303_SEE_OTHER
 
 
 from research_and_analyst.database.db_config import (
@@ -70,6 +71,10 @@ def get_db():
     finally:
         db.close()
 
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
 @app.get("/", response_class=HTMLResponse)
 async def show_login(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
@@ -103,7 +108,8 @@ async def login(
 async def dashboard(request: Request):
     session_id = request.cookies.get("session_id")
     if session_id not in SESSIONS:
-        return RedirectResponse(url="/")
+        # return RedirectResponse(url="/")
+        return RedirectResponse(url="/", status_code=HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(
         "dashboard.html", {"request": request, "user": SESSIONS[session_id]})
 
@@ -111,7 +117,8 @@ async def dashboard(request: Request):
 async def generate_report(request: Request, topic: str = Form(...)):
     session_id = request.cookies.get("session_id")
     if session_id not in SESSIONS:
-        return RedirectResponse(url="/")
+        # return RedirectResponse(url="/")
+        return RedirectResponse(url="/", status_code=HTTP_303_SEE_OTHER)
 
     llm = ModelLoader().load_llm()
     generator = AutonomousReportGenerator(llm)
@@ -149,7 +156,8 @@ async def generate_report(request: Request, topic: str = Form(...)):
 async def submit_feedback(request: Request, topic: str = Form(...), feedback: str = Form(...)):
     session_id = request.cookies.get("session_id")
     if session_id not in SESSIONS:
-        return RedirectResponse(url="/")
+        # return RedirectResponse(url="/")
+        return RedirectResponse(url="/", status_code=HTTP_303_SEE_OTHER)
 
     # Option B-1: retrieve the thread_id created in /generate_report
     thread_id = THREADS.get(session_id)
@@ -246,3 +254,8 @@ async def download_report(file_name: str):
             )
     return {"error": f"File {file_name} not found"}
 
+# local testing
+# uvicorn research_and_analyst.api.main:app --reload
+
+# production 
+# uvicorn research_and_analyst.api.main:app --host 0.0.0.0 --port 8000
