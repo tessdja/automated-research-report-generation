@@ -1,0 +1,55 @@
+{
+    "family": "automated-research-report-generation-td",
+    "networkMode": "awsvpc",
+    "requiresCompatibilities": ["FARGATE", "MANAGED_INSTANCES"],
+    "cpu": "1024",
+    "memory": "2048",
+    "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+    "containerDefinitions": [
+        {
+        "name": "arrg",
+        "image": "REPLACED_BY_GITHUB_ACTIONS",
+        "essential": true,
+        "portMappings": [
+            {
+            "name": "arrg-8000-tcp",
+            "containerPort": 8000,
+            "hostPort": 8000,
+            "protocol": "tcp",
+            "appProtocol": "http"
+            }
+        ],
+        "environment": [
+            { "name": "APP_TIMEZONE", "value": "America/New_York" }
+        ],
+        "secrets": [
+            {
+            "name": "OPENAI_API_KEY",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:OPENAI_API_KEY::"
+            },
+            {
+            "name": "GOOGLE_API_KEY",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:GOOGLE_API_KEY::"
+            },
+            {
+            "name": "GROQ_API_KEY",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:GROQ_API_KEY::"
+            },
+            {
+            "name": "TAVILY_API_KEY",
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:TAVILY_API_KEY::"
+            }
+        ],
+        "logConfiguration": {
+            "logDriver": "awslogs",
+            "options": {
+            "awslogs-group": "/ecs/automated-research-report-generation-td",
+            "awslogs-create-group": "true",
+            "awslogs-region": "us-east-1",
+            "awslogs-stream-prefix": "ecs"
+            }
+        }
+        }
+    ]
+}
