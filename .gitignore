@@ -13,3 +13,16 @@ logs
 
 archive/
 
+############################
+# Runtime state / checkpoints
+############################
+# LangGraph / LangChain / app state
+checkpoints.sqlite
+checkpoints.sqlite-wal
+checkpoints.sqlite-shm
+
+############################
+# Generated outputs (NEVER commit)
+############################
+generated_report/
+
