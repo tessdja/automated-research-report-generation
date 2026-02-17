@@ -4,8 +4,8 @@
     "requiresCompatibilities": ["FARGATE", "MANAGED_INSTANCES"],
     "cpu": "1024",
     "memory": "2048",
-    "executionRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
-    "taskRoleArn": "arn:aws:iam::YOUR_ACCOUNT_ID:role/ecsTaskExecutionRole",
+    "executionRoleArn": "arn:aws:iam::793934355299:role/ecsTaskExecutionRole",
+    "taskRoleArn": "arn:aws:iam::793934355299:role/ecsTaskExecutionRole",
     "containerDefinitions": [
         {
         "name": "arrg",
@@ -26,19 +26,19 @@
         "secrets": [
             {
             "name": "OPENAI_API_KEY",
-            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:OPENAI_API_KEY::"
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:793934355299:secret:ARRG_API_KEYS-uGNAOt:OPENAI_API_KEY::"
             },
             {
             "name": "GOOGLE_API_KEY",
-            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:GOOGLE_API_KEY::"
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:793934355299:secret:ARRG_API_KEYS-uGNAOt:GOOGLE_API_KEY::"
             },
             {
             "name": "GROQ_API_KEY",
-            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:GROQ_API_KEY::"
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:793934355299:secret:ARRG_API_KEYS-uGNAOt:GROQ_API_KEY::"
             },
             {
             "name": "TAVILY_API_KEY",
-            "valueFrom": "arn:aws:secretsmanager:us-east-1:YOUR_ACCOUNT_ID:secret:ARRG_API_KEYS-uGNAOt:TAVILY_API_KEY::"
+            "valueFrom": "arn:aws:secretsmanager:us-east-1:793934355299:secret:ARRG_API_KEYS-uGNAOt:TAVILY_API_KEY::"
             }
         ],
         "logConfiguration": {
