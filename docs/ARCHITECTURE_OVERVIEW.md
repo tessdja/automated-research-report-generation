@@ -225,3 +225,6 @@ This is what happens when a user hits your application:
 │ /health → {"status":"ok"}     │
 └──────────────────────────────┘
 ```
+### 🔑 One-Line Summary
+**Data Plane**  serves user traffic (ALB → ECS → FastAPI).
+**Control Plane** delivers changes safely (GitHub Actions → ECR → ECS rolling deploy guarded by health checks).
