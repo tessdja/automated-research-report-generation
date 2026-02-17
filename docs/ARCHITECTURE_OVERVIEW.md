@@ -110,7 +110,7 @@ ALB correctly returned **503.**
 - Target marked healthy
 - 503 resolved
 
-### 🎯 Executive-Level Explanation (One Paragraph)
+### 🎯 503 Explanation (One Paragraph)
 The initial 503 error occurred because the Application Load Balancer had no healthy ECS task targets registered in its target group. Although the ALB was internet-facing and correctly configured, traffic could not be routed to any backend container. Once the ECS service was properly attached to the target group and passed health checks on /health, the ALB began routing traffic successfully, restoring service availability.
 
 ### 🧠 What You Just Built (Big Picture)
@@ -122,3 +122,72 @@ You now have:
 - Production-style architecture
 
 This is not a “basic deployment” anymore — this is real cloud-native infrastructure.
+
+## 🚀 CI/CD Deployment Architecture (GitHub Actions → ECS)
+In addition to the runtime architecture, this system includes an automated deployment pipeline using GitHub Actions.
+
+### Deployment Trigger
+- A push to the main branch automatically triggers a GitHub Actions workflow.
+- The workflow builds, publishes, and deploys a new container revision to ECS.
+### 🔄 CI/CD Flow
+```
+Developer Push to main
+        ↓
+GitHub Actions Workflow
+        ↓
+Build Docker Image
+        ↓
+Push Image to Amazon ECR
+        ↓
+Render ECS Task Definition (new image tag)
+        ↓
+Register New Task Definition Revision
+        ↓
+Update ECS Service
+        ↓
+Rolling Deployment
+        ↓
+ALB Health Check (/health)
+        ↓
+Traffic Routed to New Container
+```
+### 🔍 Technical Breakdown
+1. Developer pushes code to main.
+2. GitHub Actions:
+  - Configures AWS credentials
+  - Logs into Amazon ECR
+  - Builds Docker image
+  - Pushes image to ECR
+3. Workflow renders a new task definition with updated image.
+4. ECS registers a new task definition revision.
+5. ECS service performs a rolling update:
+  - Starts new task
+  - Waits for /health to pass
+  - Stops old task
+6. ALB routes traffic only to healthy tasks.
+
+### 🎯 Why This Matters
+This pipeline provides:
+- Automated deployments
+- Consistent container builds
+- Immutable infrastructure revisions
+- Zero manual ECS updates
+- Repeatable production deployments
+- Rollback capability via task definition revisions
+
+### 🏗 Updated Big Picture Architecture
+You now have two layers:
+
+### Runtime Layer (Traffic Handling)
+Client → ALB → Target Group → ECS (Fargate) → FastAPI
+
+### Delivery Layer (CI/CD)
+GitHub → GitHub Actions → ECR → ECS → ALB
+
+This separation ensures:
+- Clean deployment lifecycle
+- Infrastructure automation
+- Production-grade cloud architecture
+
+### 🎯 Summary
+The application now includes a fully automated CI/CD pipeline. Code changes pushed to the main branch automatically build a new container image, publish it to Amazon ECR, register a new ECS task revision, and deploy it using rolling updates. Health checks ensure only healthy containers receive traffic, enabling safe, production-ready deployments without manual intervention.
