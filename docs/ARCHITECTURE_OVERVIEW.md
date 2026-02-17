@@ -191,3 +191,37 @@ This separation ensures:
 
 ### 🎯 Summary
 The application now includes a fully automated CI/CD pipeline. Code changes pushed to the main branch automatically build a new container image, publish it to Amazon ECR, register a new ECS task revision, and deploy it using rolling updates. Health checks ensure only healthy containers receive traffic, enabling safe, production-ready deployments without manual intervention.
+
+### 🧭 End-to-End Architecture (Data Plane vs Control Plane)
+#### Data Plane (Runtime Traffic Path)
+
+This is what happens when a user hits your application:
+```pgsql
+┌──────────────────────┐
+│  Browser / curl / API │
+└──────────┬───────────┘
+           │ HTTP :80 / :443
+           v
+┌──────────────────────────────┐
+│ Application Load Balancer     │
+│ (arrg-alb)                    │
+└──────────┬───────────────────┘
+           │ Listener Rule(s)
+           v
+┌──────────────────────────────┐
+│ Target Group (arrg-tg)        │
+│ Health Check: GET /health     │
+└──────────┬───────────────────┘
+           │ Routes only to healthy tasks
+           v
+┌──────────────────────────────┐
+│ ECS Service (Fargate)         │
+│ Running Task(s)               │
+└──────────┬───────────────────┘
+           │ containerPort: 8000
+           v
+┌──────────────────────────────┐
+│ FastAPI App (ARRG container)  │
+│ /health → {"status":"ok"}     │
+└──────────────────────────────┘
+```
