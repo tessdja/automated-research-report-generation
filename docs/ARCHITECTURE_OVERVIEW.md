@@ -29,11 +29,11 @@ FastAPI app (/health endpoint)
 
 2. The ALB (port 80) receives the request.
 3. The ALB forwards traffic to:
-        - Target Group: arrg-tg
-        - Port: 8000
+  - Target Group: arrg-tg
+  -  Port: 8000
 4. The Target Group routes to:
-        - The ECS task’s private IP
-        - Port 8000
+  - The ECS task’s private IP
+  - Port 8000
 5. The container is running:
 `uvicorn research_and_analyst.api.main:app --host 0.0.0.0 --port 8000`
 6. The FastAPI /health endpoint returns:
